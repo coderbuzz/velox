@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@8a99d5c -->
+<!-- docs: sync from coderbuzz/codex@cd4a13b -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -62,6 +62,37 @@ Validation POST (veta schema):
 - **Performance-Driven** — Minimal overhead, engineered for high throughput
 - **Modular & Extensible** — Sub-apps, scoped middleware via `define()`, global middleware via `apply()`
 - **Ecosystem** — `@coderbuzz/velox-ws-wire*` for binary WebSocket protocol with 80-93% bandwidth reduction, fault-tolerant client, and server-side handler
+
+---
+
+## Velox Ecosystem
+
+Velox is the HTTP framework core. Binary WebSocket protocol utilities live in separate packages to keep velox lean:
+
+| Package | Description | Requires Velox? |
+|---|---|---|
+| `@coderbuzz/velox-ws-wire` | Binary Wire Protocol codec — 80-93% bandwidth reduction over JSON | No |
+| `@coderbuzz/velox-ws-wire-client` | Fault-tolerant WebSocket client with auto-reconnect, heartbeat, pub/sub, request-response | No |
+| `@coderbuzz/velox-ws-wire-server` | Server-side Wire Protocol handler — mount via `app.use("/ws", wireProtocol({...}))` | Yes |
+
+```ts
+// Server — mount binary protocol handler
+import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
+
+app.use("/ws", wireProtocol({
+  message(peer, msg) { peer.send(`echo: ${msg}`); },
+}));
+
+// Client — standalone, not from velox
+import { WireClient } from "@coderbuzz/velox-ws-wire-client";
+
+const client = new WireClient("wss://api.example.com/ws", {
+  heartbeatInterval: 30_000,
+});
+await client.connect();
+client.send("hello");
+await client.close();
+```
 
 ---
 
@@ -601,37 +632,6 @@ app.post("/broadcast", async (ctx) => {
 | `pongTimeout` | `number` | `10` | Seconds to wait for pong before closing |
 | `perMessageDeflate` | `boolean` | `false` | Enable per-message compression |
 | `idleTimeout` | `number` | `120` | Seconds before idle connections are closed |
-
----
-
-## Velox Ecosystem
-
-Velox is the HTTP framework core. Binary WebSocket protocol utilities live in separate packages to keep velox lean:
-
-| Package | Description | Requires Velox? |
-|---|---|---|
-| `@coderbuzz/velox-ws-wire` | Binary Wire Protocol codec — 80-93% bandwidth reduction over JSON | No |
-| `@coderbuzz/velox-ws-wire-client` | Fault-tolerant WebSocket client with auto-reconnect, heartbeat, pub/sub, request-response | No |
-| `@coderbuzz/velox-ws-wire-server` | Server-side Wire Protocol handler — mount via `app.use("/ws", wireProtocol({...}))` | Yes |
-
-```ts
-// Server — mount binary protocol handler
-import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
-
-app.use("/ws", wireProtocol({
-  message(peer, msg) { peer.send(`echo: ${msg}`); },
-}));
-
-// Client — standalone, not from velox
-import { WireClient } from "@coderbuzz/velox-ws-wire-client";
-
-const client = new WireClient("wss://api.example.com/ws", {
-  heartbeatInterval: 30_000,
-});
-await client.connect();
-client.send("hello");
-await client.close();
-```
 
 ---
 

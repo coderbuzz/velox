@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@d0bc006 -->
+<!-- docs: sync from coderbuzz/codex@cd4a13b -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -549,67 +549,25 @@ perMessageDeflate:  false
 
 ---
 
-## 10. WSClient (Binary Protocol)
+## 10. Velox Ecosystem — Binary WebSocket Protocol
 
-### 10.1 Connection
+The binary Wire Protocol (formerly KBWP) was extracted from velox into separate packages to keep the core lean:
 
-```ts
-const client = new WSClient(url, options);
-await client.connect();
-await client.close();
-```
+| Package | What it provides | Velox dependency? |
+|---|---|---|
+| `@coderbuzz/velox-ws-wire` | `encode()`, `decode()`, `encodedSize()` — pure binary framing codec | No |
+| `@coderbuzz/velox-ws-wire-client` | `WireClient` — fault-tolerant WebSocket client with binary protocol | No |
+| `@coderbuzz/velox-ws-wire-server` | `wireProtocol()` — server-side handler, mount via `app.use()` | Yes |
 
-### 10.2 Sending
-
-```ts
-client.send(data)               // fire-and-forget (string or binary)
-const result = await client.sendWait(payload, timeout?)  // request-response
-```
-
-### 10.3 Pub/Sub
+**Warning:** `WSClient`, `wsClientProtocol`, `WsClientState`, `WsDefinition`, `WsClientOptions` were removed from velox in v0.5.0. Import from the new packages instead:
 
 ```ts
-client.subscribe(topic, callback); // callback(data: unknown) => void
-client.publish(topic, data);
-client.unsubscribe(topic);
-```
+// old — no longer in @coderbuzz/velox
+import { WSClient, wsClientProtocol } from "@coderbuzz/velox"; // ❌
 
-### 10.4 WSClient Options
-
-```ts
-{
-  token?: string,               // auth token
-  authMode?: 'message' | 'query',  // default: 'message'
-  authTimeout?: number,         // default: 10_000 ms
-  maxRetries?: number,          // default: Infinity
-  backoffFactor?: number,       // default: 2
-  backoffMax?: number,          // default: 30_000 ms
-  backoffBase?: number,         // default: 500 ms
-  heartbeatInterval?: number,   // default: 30_000 ms
-  requestTimeout?: number,      // default: 10_000 ms
-  onConnect?: () => void,
-  onDisconnect?: (code: number, reason: string) => void,
-  onReconnectAttempt?: (attempt: number, delay: number) => void,
-  onData?: (data: string | ArrayBuffer) => void,
-  onFrame?: (frame: DecodedFrame) => void,
-}
-```
-
-### 10.5 wsClientProtocol (Server-Side)
-
-`wsClientProtocol` returns an `App`. Always mount with `app.use()`:
-
-```ts
-app.use("/ws", wsClientProtocol<DataType>({
-  // All WsHandler callbacks:
-  upgrade?(req), open?(peer), message(peer, msg), close?(peer, code, reason),
-  ping?, pong?, error?,
-  // WsOptions fields (inlined):
-  maxPayloadLength?, pingInterval?, pongTimeout?, idleTimeout?, perMessageDeflate?,
-  // Auth:
-  authenticate?: (token: string) => DataType | null | Promise<DataType | null>,
-  tokenParam?: string,  // query param name, default: 'token'
-}));
+// new
+import { WireClient } from "@coderbuzz/velox-ws-wire-client";
+import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 ```
 
 ---
@@ -1055,25 +1013,21 @@ import {
   timeout,
   timing,
   verifyJwt,
-  wsClientProtocol,
 } from "@coderbuzz/velox";
 
-// WebSocket
-import {
-  WSClient,
-  WsClientState,
-  WsReadyState,
-  WsTopicHub,
-} from "@coderbuzz/velox";
+// WebSocket (Wire Protocol lives in separate packages)
+import { WsTopicHub } from "@coderbuzz/velox";
 import type {
-  WsClientOptions,
-  WsClientStateValue,
-  WsDefinition,
   WsHandler,
   WsMessageData,
   WsOptions,
   WsPeer,
 } from "@coderbuzz/velox";
+
+// Wire Protocol — separate packages (not in velox)
+// import { encode, decode } from "@coderbuzz/velox-ws-wire";
+// import { WireClient } from "@coderbuzz/velox-ws-wire-client";
+// import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 
 // Utilities
 import {
