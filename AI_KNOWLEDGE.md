@@ -1,3 +1,5 @@
+<!-- docs: sync from coderbuzz/codex@01c963c -->
+
 # Velox Framework — AI Expert Knowledge Reference
 
 **Package**: `@coderbuzz/velox`\
