@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@796aac1 -->
+<!-- docs: sync from coderbuzz/codex@8710ebe -->
 
 # Velox Framework — AI Expert Knowledge Reference
 

@@ -1,8 +1,8 @@
-<!-- docs: sync from coderbuzz/codex@796aac1 -->
+<!-- docs: sync from coderbuzz/codex@8710ebe -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
-> **#1 fastest TypeScript HTTP framework — benchmarks-proven faster than Elysia, Hono, and Express.** Runtime-agnostic with full type safety.
+> **#1 fastest TypeScript HTTP framework — faster than Elysia, Hono, and Express across every benchmark.** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 
 Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **269K req/s** for simple GET and **119K req/s** for validation POST — outperforming Elysia, Hono, and Express on every benchmark. Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
