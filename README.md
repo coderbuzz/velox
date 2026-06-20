@@ -1,11 +1,11 @@
-<!-- docs: sync from coderbuzz/codex@01c963c -->
+<!-- docs: sync from coderbuzz/codex@796aac1 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
 > **#1 fastest TypeScript HTTP framework — benchmarks-proven faster than Elysia, Hono, and Express.** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 
-Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **262K req/s** for simple GET and **124K req/s** for validation POST — outperforming Elysia, Hono, and Express on every benchmark. Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
+Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **269K req/s** for simple GET and **119K req/s** for validation POST — outperforming Elysia, Hono, and Express on every benchmark. Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
 
 ---
 
@@ -13,7 +13,7 @@ Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **2
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (simple GET) | ~261K req/sec | ~162K req/sec | ~97K req/sec | **~262K req/sec** on Bun (winner) |
+| Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun (winner) |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Kyo** — <5 KB gzip, coercion built-in |
 | Type inference through middleware | Good | Partial | None | **Full** — `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -33,22 +33,22 @@ Velox on Bun (Apple M-series, oha `-c 100 -z 10s`):
 
 | Scenario | Requests/sec |
 |---|---|
-| Simple GET (inline JSON) | **~262K req/s** |
-| Validation POST (veta schema) | **~124K req/s** |
+| Simple GET (inline JSON) | **~269K req/s** |
+| Validation POST (veta schema) | **~119K req/s** |
 
 Comparative numbers (simple GET, Bun):
-- **@coderbuzz/velox**: **262,405 req/s** (winner)
-- **Elysia**: 261,663 req/s (1.003x factor)
-- **Hono**: 162,469 req/s (1.61x factor)
-- **Express**: 96,892 req/s (2.71x factor)
+- **@coderbuzz/velox**: **269,388 req/s** (winner)
+- **Elysia**: 262,685 req/s (1.026x factor)
+- **Hono**: 170,044 req/s (1.58x factor)
+- **Express**: 100,762 req/s (2.67x factor)
 
 Validation POST (veta schema):
-- **@coderbuzz/velox**: **123,856 req/s** (winner)
-- **Elysia**: 97,811 req/s (1.27x factor)
-- **Hono**: 76,600 req/s (1.62x factor)
-- **Express**: 50,829 req/s (2.44x factor)
+- **@coderbuzz/velox**: **119,058 req/s** (winner)
+- **Elysia**: 94,776 req/s (1.26x factor)
+- **Hono**: 74,657 req/s (1.60x factor)
+- **Express**: 48,652 req/s (2.45x factor)
 
-> Run benchmarks yourself: `git clone https://github.com/coderbuzz/benchmarks && cd benchmarks && bash packages/ken/static-value/run.sh`
+> Run benchmarks yourself: `git clone https://github.com/coderbuzz/benchmarks && cd benchmarks && bash packages/velox/static-value/run.sh`
 
 ---
 
