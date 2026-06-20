@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@8710ebe -->
+<!-- docs: sync from coderbuzz/codex@d0bc006 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -9,12 +9,12 @@ Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **2
 
 ---
 
-## Why Velox Over Elysia, Hono, or Express?
+## Why Velox over Elysia, Hono, or Express?
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
 | Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun (winner) |
-| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Kyo** — <5 KB gzip, coercion built-in |
+| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Veta** — <5 KB gzip, coercion built-in |
 | Type inference through middleware | Good | Partial | None | **Full** — `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
 | Runtime support | Bun, Node, Deno | Bun, Node, Deno, Workers | Node only | Bun, Node (**+uWebSockets.js**), Deno |
