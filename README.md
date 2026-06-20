@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@d0bc006 -->
+<!-- docs: sync from coderbuzz/codex@8a99d5c -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -21,7 +21,7 @@ Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **2
 | Built-in middleware | Limited | Via third-party | Via third-party | **16+** — JWT, CORS, sessions, CSRF, rate limiting, secure headers, etc. |
 | File utilities | Limited | None | Via middleware | **Built-in** — sendFile, receiveFiles, listDirectory, MIME detection |
 | Encrypted cookies | Not built-in | Not built-in | Not built-in | **Built-in** AES-GCM encryption utilities |
-| Binary WebSocket protocol | No | No | No | **KBWP** — 80-93% bandwidth reduction over JSON |
+| Binary WebSocket protocol | No | No | No | **Wire Protocol** (`@coderbuzz/velox-ws-wire`) — 80-93% bandwidth reduction over JSON |
 
 ---
 
@@ -59,9 +59,9 @@ Validation POST (veta schema):
 - **Schema Validation** — Validate params, query, headers, cookies, body with `@coderbuzz/veta` inline schemas
 - **Built-in Middleware** — JWT, JWK/JWKS, CORS, sessions, compression, rate limiting, secure headers, CSRF, ETag, IP restriction, and more
 - **WebSocket** — Real-time connections with pub/sub, ping/pong, binary protocol, typed upgrade data
-- **WSClient** — Built-in fault-tolerant WebSocket client with Velox Binary WebSocket Protocol (KBWP)
 - **Performance-Driven** — Minimal overhead, engineered for high throughput
 - **Modular & Extensible** — Sub-apps, scoped middleware via `define()`, global middleware via `apply()`
+- **Ecosystem** — `@coderbuzz/velox-ws-wire*` for binary WebSocket protocol with 80-93% bandwidth reduction, fault-tolerant client, and server-side handler
 
 ---
 
@@ -604,59 +604,33 @@ app.post("/broadcast", async (ctx) => {
 
 ---
 
-## WebSocket Client (WSClient)
+## Velox Ecosystem
 
-Velox includes a built-in fault-tolerant WebSocket client with KBWP (Velox Binary WebSocket Protocol) — **80–93% bandwidth reduction** over JSON for protocol messages.
+Velox is the HTTP framework core. Binary WebSocket protocol utilities live in separate packages to keep velox lean:
 
-```ts
-import { WSClient } from "@coderbuzz/velox";
-
-const client = new WSClient("wss://api.example.com/ws", {
-  token: "my-jwt",
-  heartbeatInterval: 30_000,
-  requestTimeout: 10_000,
-  maxRetries: Infinity,
-  onConnect: () => console.log("Connected"),
-  onDisconnect: (code, reason) => console.log("Disconnected", code),
-});
-
-await client.connect();
-
-// Fire-and-forget
-client.send("hello");
-
-// Request-response with correlation
-const result = await client.sendWait({ type: "getData", id: 42 });
-
-// Pub/sub
-client.subscribe("events", (data) => console.log("Event:", data));
-client.publish("events", { action: "click" });
-
-await client.close();
-```
-
-### wsClientProtocol — Server-Side Counterpart
+| Package | Description | Requires Velox? |
+|---|---|---|
+| `@coderbuzz/velox-ws-wire` | Binary Wire Protocol codec — 80-93% bandwidth reduction over JSON | No |
+| `@coderbuzz/velox-ws-wire-client` | Fault-tolerant WebSocket client with auto-reconnect, heartbeat, pub/sub, request-response | No |
+| `@coderbuzz/velox-ws-wire-server` | Server-side Wire Protocol handler — mount via `app.use("/ws", wireProtocol({...}))` | Yes |
 
 ```ts
-import { wsClientProtocol, verifyJwt } from "@coderbuzz/velox";
+// Server — mount binary protocol handler
+import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 
-app.use("/chat", wsClientProtocol({
-  upgrade(req) {
-    const name = new URL(req.url).searchParams.get("name") ?? "anon";
-    return { username: name };
-  },
-  open(peer) { peer.subscribe("chat"); },
+app.use("/ws", wireProtocol({
   message(peer, msg) { peer.send(`echo: ${msg}`); },
 }));
 
-// With post-connect binary auth
-app.use("/ws", wsClientProtocol<{ userId: string }>({
-  authenticate: async (token) => {
-    const user = await verifyJwt(token, "secret");
-    return user ? { userId: String(user.sub) } : null;
-  },
-  open(peer) { console.log("authed:", peer.data.userId); },
-}));
+// Client — standalone, not from velox
+import { WireClient } from "@coderbuzz/velox-ws-wire-client";
+
+const client = new WireClient("wss://api.example.com/ws", {
+  heartbeatInterval: 30_000,
+});
+await client.connect();
+client.send("hello");
+await client.close();
 ```
 
 ---
