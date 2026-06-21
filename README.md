@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@e5210d1 -->
+<!-- docs: sync from coderbuzz/codex@e9b6bce -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -9,8 +9,8 @@
   <a href="https://www.npmjs.com/package/@coderbuzz/velox"><img src="https://img.shields.io/npm/dm/@coderbuzz/velox.svg?style=flat-square" alt="npm downloads" /></a>
   <a href="https://github.com/coderbuzz/velox/blob/main/LICENSE"><img src="https://img.shields.io/github/license/coderbuzz/velox.svg?style=flat-square" alt="MIT License" /></a>
   <a href="https://github.com/coderbuzz/velox"><img src="https://img.shields.io/github/stars/coderbuzz/velox.svg?style=flat-square" alt="GitHub Stars" /></a>
-  <a href="https://github.com/coderbuzz/codex/actions/workflows/ci.velox.yml"><img src="https://github.com/coderbuzz/codex/actions/workflows/ci.velox.yml/badge.svg" alt="CI" /></a>
-  <a href="https://codecov.io/gh/coderbuzz/codex"><img src="https://codecov.io/gh/coderbuzz/codex/graph/badge.svg?flag=velox" alt="Codecov" /></a>
+  <a href="https://github.com/coderbuzz/velox/actions/workflows/ci.yml"><img src="https://github.com/coderbuzz/velox/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
 Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **269K req/s** for simple GET and **119K req/s** for validation POST — outperforming Elysia, Hono, and Express on every benchmark. Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
