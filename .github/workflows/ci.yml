@@ -10,7 +10,7 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: latest
-      - run: bun install
+      - run: bun install --no-optional
       - run: bun test --coverage --coverage-reporter=lcov
       - uses: codecov/codecov-action@v5
         with:
