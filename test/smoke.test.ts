@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { isBun, isNode, isDeno, defaultErrorHandler, App, AppServer } from "@coderbuzz/velox";
+import { isBun, isNode, isDeno, defaultErrorHandler, App, AppServer } from "../src/index";
 
 test("runtime detection", () => {
   expect(typeof isBun).toBe("boolean");
