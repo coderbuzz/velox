@@ -1,0 +1,12 @@
+{
+  "name": "@coderbuzz/velox-ci",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
+  "devDependencies": {
+    "@coderbuzz/velox": "latest",
+    "@coderbuzz/veta": "latest"
+  }
+}

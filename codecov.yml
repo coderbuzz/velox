@@ -1,0 +1,12 @@
+codecov:
+  require_ci_to_pass: true
+
+coverage:
+  range: 60..95
+  round: down
+  precision: 2
+
+comment:
+  layout: "header, diff, flags, files"
+  behavior: default
+  require_changes: false
