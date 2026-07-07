@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@de6df0c -->
+<!-- docs: sync from coderbuzz/codex@53ad125 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -366,6 +366,30 @@ app.post("/api/users", {
 Body validation runs on the raw handler return value before `toResponse()`. Status and header validation run after `onFinish` callbacks (cookies already applied), on the final `Response` object — ensuring everything is validated before it reaches the client.
 
 Throw a `Response` to bypass validation entirely (e.g., early returns from middleware).
+
+### Type Inference
+
+When `response.body` is specified, the handler's return type is automatically inferred from the validator — no need to annotate:
+
+```ts
+app.post("/api/users", {
+  response: {
+    body: object({
+      id: number(),
+      name: string(),
+    }),
+  },
+}, (ctx) => {
+  // return type is inferred as { id: number; name: string }
+  return { id: 1, name: "John" };     // ✅
+  return { id: "1", name: "John" };    // ❌ string !== number
+  return { name: "John" };             // ❌ missing 'id'
+});
+```
+
+Routes without `response.body` keep the return type as `any` — fully backward compatible.
+
+> **Note:** TypeScript structural typing allows extra properties in return positions. `return { id: 1, name: "John", extra: true }` will not error even though `extra` isn't in the schema. Use `as const` or `satisfies` for stricter checking.
 
 ---
 

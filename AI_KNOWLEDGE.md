@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@de6df0c -->
+<!-- docs: sync from coderbuzz/codex@53ad125 -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -176,7 +176,63 @@ export interface ResponseSchema {
 }
 ```
 
+### 3.4 Type Inference from Response Body
+
+When `response.body` is present in the schema, the handler's return type is inferred from the validator's `ReturnType` via `InferResponse<T>`:
+
+```ts
+// Internal type utility (exported from @coderbuzz/velox):
+export type InferResponse<T> = T extends ResponseSchema
+  ? T['body'] extends Validator
+    ? ReturnType<T['body']>
+    : any
+  : any;
+```
+
+**Effect on handler types:**
+
+| `Handler` (compiler.ts) | `TypedHandler` (app.ts) |
+|---|---|
+| `(ctx) => InferResponse<S['response']> \| Promise<...>` | `(ctx) => InferResponse<S['response']> \| Promise<...>` |
+
+**Example:**
+
+```ts
+app.post("/users", {
+  response: { body: object({ id: number(), name: string() }) },
+}, (ctx) => {
+  // return type inferred as { id: number; name: string }
+  return { id: 1, name: "John" };     // ✅ OK
+  return { id: "1", name: "John" };    // ❌ Type 'string' not assignable to 'number'
+  return { name: "John" };             // ❌ Property 'id' is missing
+  return "hello";                      // ❌ Type 'string' not assignable to '{ id: number; name: string }'
+});
+```
+
+**Routes without `response.body`:** return type stays `any` (backward compatible):
+
+```ts
+app.get("/health", (ctx) => "OK"); // return type is still any
+app.get("/version", { response: { status: 200 } }, (ctx) => {
+  return { version: "1.0" }; // no body validator → return type is any
+});
+```
+
+**Important caveat:** TypeScript structural typing allows extra properties in return positions. The following will NOT error at compile time:
+
+```ts
+app.post("/users", {
+  response: { body: object({ id: number(), name: string() }) },
+}, (ctx) => {
+  return { id: 1, name: "John", extra: true }; // ✅ compiles, but `extra` is not in schema
+});
+```
+
+For strict excess property checking, use a type-level `Exact<T>` wrapper if needed (not provided by default). At runtime, the veta validator will strip/ignore unknown fields depending on the validator configuration.
+
 ---
+
+
 
 ## 4. Context Object (`ctx`)
 
@@ -1064,6 +1120,7 @@ import type {
   Context,
   ErrorHandler,
   InferState,
+  InferResponse,
   MiddlewareHandler,
   RemoteInfo,
   ResponseSchema,
