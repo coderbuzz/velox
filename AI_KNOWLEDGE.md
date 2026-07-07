@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@e9b6bce -->
+<!-- docs: sync from coderbuzz/codex@de6df0c -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -80,6 +80,7 @@ The schema object is the second argument before the handler. It has these keys:
 | `form`    | `Record<string, Validator>`         | `await ctx.form`                         |
 | `state`   | `StateMiddleware`                   | `ctx.state.xxx` (after middleware runs)  |
 | `onError` | `ErrorHandler`                      | invoked if handler/middleware throws     |
+| `response`| `ResponseSchema`                    | validated after finish callbacks         |
 
 ### 3.1 Validators from `@coderbuzz/veta`
 
@@ -123,6 +124,57 @@ object({ name: string({ min: 2 }), age: number({ min: 18 }) });
 - `params` without schema but route has dynamic segments → typed from path
   string (e.g., `/users/:id` → `{ id: string }`, `/files/*` → `{ "*": string }`,
   `/optional/:id?` → `{ id?: string }`)
+
+### 3.3 Response Schema
+
+Validates the handler's return value before sending to the client:
+
+```ts
+response?: {
+  body?: Validator;          // validasi raw value (object/string/null)
+  status?: number;           // default status (for raw values) or expected status (for Response)
+  headers?: Record<string, Validator>;  // validasi header Response
+}
+```
+
+**Behavior by return type:**
+
+| Return Type | Body | Status | Headers |
+|---|---|---|---|
+| `object` / `string` / `null` / `undefined` | Validator applied to raw value | If `response.status` set → passed as `defaultStatus` to `toResponse()` | Skipped — raw values don't have headers yet |
+| `instanceof Response` | Body validation skipped | `response.status` compared against actual `Response.status` — throws on mismatch | Each key in `response.headers` validated with its Validator |
+
+**Execution order in executor:**
+
+```
+handler(ctx) → raw value
+  └─ applyResponseValidation(value, schema?.response)
+       ├─ body validation (raw only, skip Response)
+       └─ toResponse(value, status?) → Response
+  └─ _executeFinishCallbacks(Response) ← onFinish callbacks (cookies appended, etc.)
+  └─ validateResponse(Response, schema.response)  ← status + headers validation
+  └─ return Response → runtime adapter → HTTP write
+```
+
+**Key design decisions:**
+
+- Body validation happens on raw value, NOT after serialization to Response — zero parsing overhead.
+- Status/headers validation happens AFTER `onFinish` callbacks, so cookies appended via `setCookie` are included in the validated headers.
+- Routes without `response` schema: **zero overhead** — `applyResponseValidation` just calls `toResponse()` (same cost as before).
+- Throwing a `Response` from middleware/handler **bypasses** response validation entirely — `Response` instanceof check in executor's catch block returns early.
+- Response validation errors (body mismatch, status mismatch, header mismatch) are thrown as `Error` with descriptive messages: `"Response body validation failed: ..."`, `"Response status mismatch: expected 201, got 200"`, `"Response header \"x-id\" validation failed: ..."`.
+
+**TypeScript type:**
+
+```ts
+import type { ResponseSchema } from "@coderbuzz/velox";
+
+export interface ResponseSchema {
+  body?: Validator;
+  status?: number;
+  headers?: Record<string, Validator>;
+}
+```
 
 ---
 
@@ -316,6 +368,35 @@ app.define({ user: () => getCurrentUser() }, (app) => {
   );
 });
 ```
+
+### 6.6 Error Type Preservation
+
+Validation errors from body getters (`json`, `text`, `form`) propagate **as-is** to `onError` — no type wrapping:
+
+```ts
+import { VetaError } from "@coderbuzz/veta";
+
+app.onError((err) => {
+  // VetaError dari json/text/form validation:
+  if (err instanceof VetaError) {
+    return Response.json(
+      { message: err.message, path: err.path },
+      { status: 400 },
+    );
+  }
+
+  // Error dari handler
+  if (err instanceof Error) {
+    return Response.json({ message: err.message }, { status: 500 });
+  }
+
+  return Response.json({ message: "Unknown error" }, { status: 500 });
+});
+```
+
+This is consistent with `params`, `query`, `cookies`, and `headers` — validation errors from ALL schema keys preserve their original error type (e.g., `VetaError`). No try-catch wrapping in body getters.
+
+**Before v0.3.24**: body getters caught VetaError and re-threw as generic `Error("JSON Body validation failed: ...")`, destroying `instanceof` checks and `err.path`.
 
 ---
 
@@ -985,6 +1066,7 @@ import type {
   InferState,
   MiddlewareHandler,
   RemoteInfo,
+  ResponseSchema,
   Schema,
   StateMiddleware,
   TypedHandler,

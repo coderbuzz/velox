@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@e9b6bce -->
+<!-- docs: sync from coderbuzz/codex@de6df0c -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -334,6 +334,38 @@ app.post("/api/register", {
   return Response.json({ born: born.toISOString() });
 });
 ```
+
+### Response Validation
+
+Validate response body, status code, and headers against a schema:
+
+```ts
+app.post("/api/users", {
+  params: { id: coerce(number()) },
+  response: {
+    status: 200,
+    headers: {
+      "x-request-id": string({ min: 1 }),
+    },
+    body: object({
+      id: number(),
+      name: string(),
+      email: string(),
+    }),
+  },
+}, (ctx) => {
+  return { id: ctx.params.id, name: "John", email: "john@example.com" };
+});
+```
+
+| Return Type | Body Validation | Status Validation | Headers Validation |
+|---|---|---|---|
+| **Object/String/null** | Validated ✅ | Schema's `status` used as default for `toResponse()` ✅ | Skipped |
+| **`instanceof Response`** | Skipped | Validated against `response.status` ✅ | Validated against `response.headers` ✅ |
+
+Body validation runs on the raw handler return value before `toResponse()`. Status and header validation run after `onFinish` callbacks (cookies already applied), on the final `Response` object — ensuring everything is validated before it reaches the client.
+
+Throw a `Response` to bypass validation entirely (e.g., early returns from middleware).
 
 ---
 
