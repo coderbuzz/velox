@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@53ad125 -->
+<!-- docs: sync from coderbuzz/codex@1c3b758 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -512,23 +512,54 @@ app.use(api); // without prefix — routes merged at root
 | `requestId()` | X-Request-Id header generation |
 | `logger()` | Request logging with customizable format |
 
+### Body Limit
+
+```ts
+import { bodyLimit } from "@coderbuzz/velox";
+
+app.post("/upload", {
+  state: { limit: bodyLimit({ maxSize: 1024 * 1024 }) },
+}, handler);
+
+// Custom error response
+app.post("/upload", {
+  state: { limit: bodyLimit({ maxSize: 100, onError: (ctx) => new Response("Too big!", { status: 413 }) }) },
+}, handler);
+```
+
+Body limit only applies to POST, PUT, PATCH, and DELETE methods. When
+`Content-Length` is missing, the request is rejected with 411 Length Required.
+
 ### CORS
 
 ```ts
 import { cors } from "@coderbuzz/velox";
 
+// Mount at root (simplest) — handles preflight + headers for all routes
+const corsApp = cors({ origin: "https://example.com", credentials: true });
+corsApp.get("/data", () => Response.json({ data: 1 }));
+app.use(corsApp); // no prefix needed
+
+// Mount at prefix — scoped to sub-path
 const apiCors = cors({ origin: "https://example.com", credentials: true });
 apiCors.get("/data", () => Response.json({ data: 1 }));
 app.use("/api", apiCors);
 
-// Dynamic origin
+// Array origin — allow specific origins
+const arrayCors = cors({ origin: ["https://a.com", "https://b.com"] });
+
+// Function origin — dynamic resolution
 const dynamicCors = cors({
   origin: (requestOrigin, ctx) => {
     const allowed = ["https://app.example.com", "https://admin.example.com"];
-    return allowed.includes(requestOrigin) ? requestOrigin : allowed[0];
+    return allowed.includes(requestOrigin) ? requestOrigin : "";
   },
 });
 ```
+
+CORS automatically adds `Vary: Origin` to responses. For `origin: "*"` with
+`credentials: true`, the origin is upgraded to the request origin
+automatically per the CORS spec.
 
 ### JWT
 
@@ -549,7 +580,20 @@ app.get("/token", async () => {
 app.get("/secure", {
   state: { auth: jwt({ secret: "secret", issuer: "my-app", audience: "my-api" }) },
 }, (ctx) => Response.json({ payload: ctx.state.auth }));
+
+// HS384 / HS512
+app.get("/secure-384", {
+  state: { auth: jwt({ secret: "secret", algorithm: "HS384" }) },
+}, handler);
+
+// Clock tolerance for slightly expired tokens
+app.get("/tolerant", {
+  state: { auth: jwt({ secret: "secret", clockTolerance: 10 }) },
+}, handler);
 ```
+
+Supports HS256 (default), HS384, and HS512. Optional `clockTolerance` (seconds)
+allows small clock skew when validating `exp` and `nbf` claims.
 
 ### Session
 

@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@53ad125 -->
+<!-- docs: sync from coderbuzz/codex@1c3b758 -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -519,11 +519,26 @@ These return functions that produce typed state values:
 | `ipRestriction(options)`  | fn          | `void` or `Response`                                |
 | `csrf(options?)`          | fn          | `void` or `Response`                                |
 
-### 8.3 JWT / JWK Options
+### 8.3 Body Limit Options
+
+```ts
+bodyLimit({
+  maxSize: number,          // maximum body size in bytes
+  onError?: (ctx) => Response,  // custom 413/411 response
+})
+```
+
+**Behavior:**
+- Only applies to POST, PUT, PATCH, DELETE — safe methods (GET/HEAD/OPTIONS) pass through.
+- If `Content-Length` exceeds `maxSize` → 413 Payload Too Large (or `onError` response).
+- If `Content-Length` is missing → 411 Length Required (or `onError` response).
+- Does not read the body stream — relies on Content-Length header for efficiency.
+
+### 8.4 JWT / JWK Options
 
 ```ts
 jwt({
-  secret: string,           // HMAC secret
+  secret: string,           // HMAC secret (required, must not be empty)
   algorithm?: 'HS256' | 'HS384' | 'HS512',  // default: 'HS256'
   issuer?: string,          // validates iss claim
   audience?: string,        // validates aud claim
@@ -544,7 +559,18 @@ jwk({
 })
 ```
 
-### 8.4 CORS Options
+**JWT notes:**
+- HS256 is default. HS384 and HS512 also supported.
+- Empty secret throws `Error('JWT secret must not be empty')`.
+- `clockTolerance` allows small clock skew for `exp` and `nbf` validation.
+- Error messages returned to client are generic (`'JWT verification failed'`) — details logged server-side.
+
+**JWK notes:**
+- JWKS fetch has a 5-second timeout (AbortSignal).
+- Cache is keyed by URL — different JWKS endpoints don't corrupt each other.
+- Unknown `kid` in JWT header is rejected immediately (no algorithm fallback).
+
+### 8.5 CORS Options
 
 ```ts
 cors({
@@ -558,7 +584,31 @@ cors({
 })
 ```
 
-### 8.5 Session Options
+**Usage patterns:**
+
+```ts
+// Mount at root (simplest) — handles all routes
+const c = cors();
+c.get("/data", handler);
+app.use(c);
+
+// Mount at prefix
+app.use("/api", c);
+
+// Array origin — non-matching origins denied (no ACAO header)
+cors({ origin: ["https://a.com", "https://b.com"] });
+
+// Function origin — return empty string to deny
+cors({ origin: (o) => o.startsWith("https://trusted") ? o : "" });
+```
+
+**Behavior notes:**
+- `origin: ["*"]` with `credentials: true` auto-upgrades to request origin (CORS spec requirement).
+- Responses always include `Vary: Origin` header for proper CDN caching.
+- Empty array `origin: []` denies all origins (no ACAO header set).
+- `allowHeaders: []` sets no ACAH header (does NOT mirror request headers).
+
+### 8.6 Session Options
 
 ```ts
 session({
@@ -569,9 +619,12 @@ session({
 ```
 
 Returns `T` on success, `Response` to short-circuit. Null/undefined triggers
-`onUnauthorized`. Auto-detects sync vs async at initialization — zero overhead.
+`onUnauthorized`. Runs as async always — no constructor.name detection,
+works correctly under bundlers (esbuild, tsup, webpack).
 
-### 8.6 basicAuth Options
+### 8.7 basicAuth Options
+
+**Security note:** Credentials are compared using constant-time comparison (`timingSafeEqual`) to prevent timing attacks.
 
 ```ts
 basicAuth({
@@ -583,7 +636,7 @@ basicAuth({
 // returns { username: string } in ctx.state
 ```
 
-### 8.7 bearerAuth Options
+### 8.8 bearerAuth Options
 
 ```ts
 bearerAuth({
@@ -596,7 +649,27 @@ bearerAuth({
 // returns { token: string } in ctx.state
 ```
 
-### 8.8 CSRF Rules
+### 8.9 Compress / Timeout
+
+```ts
+compress({
+  preferred?: CompressionEncoding[],  // default: ['br', 'gzip', 'deflate']
+})
+```
+- `Accept-Encoding: *` (wildcard) returns the first preferred encoding.
+- Adds `Vary: Accept-Encoding` to responses via `onFinish`.
+
+```ts
+timeout({
+  duration: number,          // milliseconds, must be > 0
+  onTimeout?: (ctx) => Response,  // NOTE: stored in ctx.state, not directly delivered
+})
+```
+- `duration <= 0` throws `Error` at middleware creation time.
+- The AbortSignal is available at `ctx.state.timeoutSig.signal`.
+- Pass the signal to `fetch(url, { signal })` for network request cancellation.
+
+### 8.10 CSRF Rules
 
 CSRF middleware **only** activates on:
 
@@ -962,7 +1035,11 @@ protectedApi.define(
   },
 );
 
+// Mount at prefix
 app.use("/api", protectedApi);
+
+// Or mount at root (no prefix needed)
+app.use(protectedApi);
 ```
 
 ### 15.5 File Upload with Validation
