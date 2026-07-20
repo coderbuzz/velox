@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@1c3b758 -->
+<!-- docs: sync from coderbuzz/codex@34f92e9 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -730,12 +730,34 @@ app.post("/broadcast", async (ctx) => {
 });
 ```
 
+### Backpressure
+
+`send()` returns a positive byte count on success, `-1` when the write is queued under backpressure, and `0` when dropped/failed. Inspect the current buffer and resume application-level delivery from `drain`:
+
+```ts
+app.ws("/stream", {
+  message(peer, message) {
+    const sent = peer.send(message);
+    if (sent === -1) console.log("buffered bytes", peer.getBufferedAmount());
+  },
+  drain(peer) {
+    console.log("writable again", peer.getBufferedAmount());
+  },
+}, {
+  backpressureLimit: 4 * 1024 * 1024,
+  closeOnBackpressureLimit: true,
+});
+```
+
+On Bun and uWebSockets.js, `drain` is native. Node forwards the socket's `drain` event, and Deno polls `bufferedAmount` to provide the same portable hook.
+
 ### WsOptions
 
 | Option | Type | Default | Description |
 |---|---|---|---|
 | `maxPayloadLength` | `number` | `16_777_216` | Max message size in bytes (16 MB) |
 | `backpressureLimit` | `number` | `16_777_216` | Max send buffer size (16 MB) |
+| `closeOnBackpressureLimit` | `boolean` | `false` | Close when the runtime backpressure limit is exceeded |
 | `pingInterval` | `number` | `30` | Seconds between server ping frames |
 | `pongTimeout` | `number` | `10` | Seconds to wait for pong before closing |
 | `perMessageDeflate` | `boolean` | `false` | Enable per-message compression |

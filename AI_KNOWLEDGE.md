@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@1c3b758 -->
+<!-- docs: sync from coderbuzz/codex@34f92e9 -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -700,6 +700,7 @@ app.ws<DataType>(path, handler, options?);
   open?(peer: WsPeer<DataType>): void | Promise<void>;
   message(peer: WsPeer<DataType>, message: WsMessageData): void | Promise<void>;
   close?(peer: WsPeer<DataType>, code: number, reason: string): void | Promise<void>;
+  drain?(peer: WsPeer<DataType>): void;
   ping?(peer: WsPeer<DataType>, data: WsMessageData): void;
   pong?(peer: WsPeer<DataType>, data: WsMessageData): void;
   error?(peer: WsPeer<DataType>, error: Error): void;
@@ -710,6 +711,7 @@ app.ws<DataType>(path, handler, options?);
 
 ```ts
 peer.send(data, compress?)     // send message
+peer.getBufferedAmount()       // bytes buffered by the runtime
 peer.close(code?, reason?)     // close connection
 peer.subscribe(topic)          // subscribe to topic
 peer.unsubscribe(topic)        // unsubscribe from topic
@@ -721,6 +723,14 @@ peer.data                      // per-connection data (from upgrade handler)
 peer.remoteAddress             // client IP
 peer.readyState                // 0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED
 ```
+
+`peer.send()` returns a positive byte count on success, `-1` when the runtime queued the write under backpressure, and `0` when it was dropped/failed. Avoid blindly retrying `-1` because the payload is already queued. Keep only newer application state if coalescing is safe, then use `drain` to continue. The uWebSockets.js adapter normalizes its native `BACKPRESSURE/SUCCESS/DROPPED` enum to these values.
+
+Portable drain behavior:
+
+- Bun and uWebSockets.js forward their native drain callback.
+- Node uses the Boolean result of `socket.write()` and forwards the socket `drain` event; `getBufferedAmount()` reports `writableLength`.
+- Deno exposes `WebSocket.bufferedAmount` and polls until it reaches zero before invoking `drain`.
 
 ### 9.4 Native Pub/Sub vs WsTopicHub
 
@@ -754,8 +764,11 @@ pongTimeout:        10 (seconds)
 idleTimeout:        120 (seconds)
 maxPayloadLength:   16_777_216 (16 MB)
 backpressureLimit:  16_777_216 (16 MB)
+closeOnBackpressureLimit: false
 perMessageDeflate:  false
 ```
+
+On Bun, options across multiple WebSocket routes use the strictest explicit payload/backpressure limit. A route can therefore lower the 16 MiB default. Set `closeOnBackpressureLimit: true` only when disconnecting overloaded peers is the intended policy; otherwise handle `send() === -1`, `getBufferedAmount()`, and `drain` in application code.
 
 ---
 
