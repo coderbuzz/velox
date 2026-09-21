@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@34f92e9 -->
+<!-- docs: sync from coderbuzz/codex@ba4a5ed -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -366,9 +366,43 @@ const logger = (ctx) => {
 
 1. Route-level `onError` (highest priority)
 2. App/sub-app-level `onError` (set with `app.onError(...)`)
-3. Framework default (returns plain text error message, 500)
+3. Framework default — see 6.2
 
-### 6.2 Throwing a Response
+### 6.2 The default handler never echoes the error
+
+With no `onError`, an unhandled throw produces exactly:
+
+```json
+{ "status": 500, "message": "Internal Server Error", "errorId": "mfk3a1-7" }
+```
+
+`content-type: application/json`, status 500. **The thrown error's own message
+is not in it**, whatever it was. The error object is passed to `console.error`
+server-side with the same `errorId` (`[velox] unhandled error <id>: <error>`),
+so a user quoting the id from their screen leads straight to the stack trace.
+
+`errorId` is `<base36 ms timestamp>-<base36 counter>`: unique within a process,
+not globally, and not a secret.
+
+This applies to every runtime path — the Node and uWS servers use the same
+response for an error escaping the executor, instead of writing the message to
+the socket as plain text.
+
+Why it matters more than it looks: the most common 500 in a database-backed app
+is a driver error, and those carry the constraint name, the column names and the
+conflicting values (`Key (tenant_id, ref)=(42, INV-001) already exists`). Echoing
+that hands one tenant's data, and the schema, to whoever sent the request —
+including an unauthenticated one, if the route is public.
+
+Consequences to plan for:
+- A failing request schema is still a 500, not a 400, and the client cannot tell
+  which field was wrong. Mapping validation failures to 4xx is a separate change
+  (velox does not depend on veta, so it cannot recognise a `VetaError`); until
+  then, an `onError` handler in the application is where that mapping goes.
+- Anything the client should see must be explicit: an `onError` handler, or a
+  thrown `Response`. Both are passed through untouched.
+
+### 6.3 Throwing a Response
 
 Throwing a `Response` **bypasses** `onError` entirely — it is sent directly:
 
@@ -378,31 +412,35 @@ throw new Response("Forbidden", { status: 403 });
 
 If you want `onError` to receive it, wrap in `Error` or catch it yourself.
 
-### 6.3 Route-Level onError
+### 6.4 Route-Level onError
 
 ```ts
 app.get("/path", {
   onError: (error, ctx) => {
     if (error instanceof Response) return error; // pass through thrown Responses
-    return Response.json({ message: String(error) }, { status: 500 });
+    console.error(error);
+    return Response.json({ message: "Internal Server Error" }, { status: 500 });
   },
 }, handler);
 ```
 
-### 6.4 App-Level onError
+### 6.5 App-Level onError
 
 ```ts
 app.onError((error, ctx) => {
-  return Response.json(
-    { message: error instanceof Error ? error.message : "Server Error" },
-    { status: 500 },
-  );
+  console.error(ctx.method, ctx.url, error);
+  // Map error types you own. Do not pass `error.message` through: an onError
+  // handler overrides the default, including the part that keeps it out.
+  if (error instanceof MyValidationError) {
+    return Response.json({ status: 400, issues: error.issues }, { status: 400 });
+  }
+  return Response.json({ message: "Internal Server Error" }, { status: 500 });
 });
 ```
 
 When using `app.use()`, the sub-app's `onError` is inherited by its routes.
 
-### 6.5 notFound
+### 6.6 notFound
 
 ```ts
 // Global fallback
@@ -425,7 +463,7 @@ app.define({ user: () => getCurrentUser() }, (app) => {
 });
 ```
 
-### 6.6 Error Type Preservation
+### 6.7 Error Type Preservation
 
 Validation errors from body getters (`json`, `text`, `form`) propagate **as-is** to `onError` — no type wrapping:
 
@@ -441,12 +479,9 @@ app.onError((err) => {
     );
   }
 
-  // Error dari handler
-  if (err instanceof Error) {
-    return Response.json({ message: err.message }, { status: 500 });
-  }
-
-  return Response.json({ message: "Unknown error" }, { status: 500 });
+  // Error dari handler — log detailnya, jangan kirim ke klien
+  console.error(err);
+  return Response.json({ message: "Internal Server Error" }, { status: 500 });
 });
 ```
 
@@ -545,6 +580,7 @@ jwt({
   headerName?: string,      // default: 'authorization'
   prefix?: string,          // default: 'Bearer'
   clockTolerance?: number,  // seconds, default: 0
+  requireExp?: boolean,     // default: true — reject a token with no exp claim
 })
 
 jwk({
@@ -555,15 +591,56 @@ jwk({
   headerName?: string,      // default: 'authorization'
   prefix?: string,          // default: 'Bearer'
   clockTolerance?: number,  // seconds
+  requireExp?: boolean,     // default: true — reject a token with no exp claim
   cacheTtl?: number,        // ms, default: 600_000 (10 min)
 })
+```
+
+```ts
+signJwt(
+  payload: JWTPayload,
+  secret: string,
+  options?: JWTAlgorithm | { algorithm?: JWTAlgorithm; expiresIn?: number },
+): Promise<string>
+
+verifyJwt(
+  token: string,
+  secret: string,
+  options?: {
+    algorithm?: JWTAlgorithm;   // default: 'HS256'
+    issuer?: string;
+    audience?: string;
+    clockTolerance?: number;    // default: 0
+    requireExp?: boolean;       // default: true
+  },
+): Promise<JWTPayload>
+
+// No signature check whatsoever. Debugging only.
+unsafeDecodeJwtWithoutVerification(token: string): { header: any; payload: JWTPayload }
 ```
 
 **JWT notes:**
 - HS256 is default. HS384 and HS512 also supported.
 - Empty secret throws `Error('JWT secret must not be empty')`.
-- `clockTolerance` allows small clock skew for `exp` and `nbf` validation.
-- Error messages returned to client are generic (`'JWT verification failed'`) — details logged server-side.
+- `clockTolerance` allows small clock skew for `exp` and `nbf` validation. The
+  signs are the way round you would want: `exp + tolerance`, `nbf - tolerance`.
+- **Expiry is mandatory in both directions.** `signJwt()` throws unless the
+  payload has `exp` or you pass `expiresIn` (seconds, positive and finite;
+  `exp` on the payload wins). `verifyJwt()`, `jwt()` and `jwk()` reject a token
+  with no `exp` claim — `requireExp: false` opts out. A JWT is stateless: a
+  leaked token cannot be revoked except by rotating the secret, which signs
+  every other session out with it, so a token that never expires is a credential
+  you cannot take back.
+- `signJwt()` does not mutate the payload you pass; `exp` is added to a copy.
+- The third argument of `signJwt()` still accepts a bare algorithm string.
+- Error messages returned to client are generic (`'JWT verification failed'`);
+  the reason is written to `console.warn` with the `[velox]` prefix — a missing
+  `exp` and a bad signature are the same 401 to the caller, and only the log
+  tells them apart.
+- `unsafeDecodeJwtWithoutVerification()` (formerly `decodeJwt`) verifies nothing.
+  Its result is attacker-controlled: anyone can craft a token with any payload.
+  Never read `sub`, tenant or role from it. The old name is gone rather than
+  deprecated, because it read like the safe thing to call.
 
 **JWK notes:**
 - JWKS fetch has a 5-second timeout (AbortSignal).
@@ -584,6 +661,24 @@ cors({
 })
 ```
 
+**`credentials: true` with a wildcard origin throws at construction.** That
+covers `cors({ credentials: true })` (origin defaults to `'*'`),
+`cors({ origin: '*', credentials: true })` and any array containing `'*'`. The
+error names the fix: list the origins. It is thrown from `cors()` itself, so it
+surfaces at startup, not on the first cross-origin request.
+
+Why it is not merely a spec technicality: browsers refuse
+`Access-Control-Allow-Origin: *` on credentialed requests, and the way around
+that refusal is to echo the caller's own `Origin` back. That turns "allow
+everyone, with cookies" into a configuration the browser accepts — so any page a
+signed-in user opens can `fetch(..., { credentials: 'include' })` your API and
+read the response. It also removes the only thing protecting JSON endpoints from
+CSRF, since `csrf()` treats a successful preflight as the check.
+
+A resolver function may still be used with `credentials: true` — it is explicit
+code, not a default. If such a resolver returns `'*'`, no `Access-Control-Allow-Origin`
+header is sent at all.
+
 **Usage patterns:**
 
 ```ts
@@ -603,7 +698,8 @@ cors({ origin: (o) => o.startsWith("https://trusted") ? o : "" });
 ```
 
 **Behavior notes:**
-- `origin: ["*"]` with `credentials: true` auto-upgrades to request origin (CORS spec requirement).
+- `origin: "*"` or `["*"]` with `credentials: true` throws (see above). Without
+  `credentials`, `'*'` is sent as `'*'`.
 - Responses always include `Vary: Origin` header for proper CDN caching.
 - Empty array `origin: []` denies all origins (no ACAO header set).
 - `allowHeaders: []` sets no ACAH header (does NOT mirror request headers).
@@ -1229,7 +1325,7 @@ import {
   compress,
   cors,
   csrf,
-  decodeJwt,
+  unsafeDecodeJwtWithoutVerification,
   etag,
   ipRestriction,
   jwk,

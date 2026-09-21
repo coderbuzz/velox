@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@34f92e9 -->
+<!-- docs: sync from coderbuzz/codex@ba4a5ed -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -557,21 +557,32 @@ const dynamicCors = cors({
 });
 ```
 
-CORS automatically adds `Vary: Origin` to responses. For `origin: "*"` with
-`credentials: true`, the origin is upgraded to the request origin
-automatically per the CORS spec.
+CORS automatically adds `Vary: Origin` to responses.
+
+**`credentials: true` cannot be combined with the wildcard origin** — `cors()`
+throws where it is written. Browsers reject `Access-Control-Allow-Origin: *` on
+credentialed requests, and reflecting the request origin to satisfy them means
+any site your logged-in users visit can read authenticated responses. Since
+`origin` defaults to `'*'`, `cors({ credentials: true })` alone is refused too:
+list the origins.
+
+```ts
+cors({ credentials: true });                                   // throws
+cors({ origin: "*", credentials: true });                      // throws
+cors({ origin: ["https://app.example.com"], credentials: true }); // correct
+```
 
 ### JWT
 
 ```ts
-import { decodeJwt, jwt, signJwt, verifyJwt } from "@coderbuzz/velox";
+import { jwt, signJwt, verifyJwt } from "@coderbuzz/velox";
 
-// Sign
+// Sign — every token needs an expiry
 app.get("/token", async () => {
   const token = await signJwt(
-    { sub: "user123", iss: "my-app", aud: "my-api", exp: Math.floor(Date.now() / 1000) + 3600 },
+    { sub: "user123", iss: "my-app", aud: "my-api" },
     "secret",
-    "HS256",
+    { algorithm: "HS256", expiresIn: 3600 },
   );
   return Response.json({ token });
 });
@@ -594,6 +605,18 @@ app.get("/tolerant", {
 
 Supports HS256 (default), HS384, and HS512. Optional `clockTolerance` (seconds)
 allows small clock skew when validating `exp` and `nbf` claims.
+
+**Tokens must expire.** `signJwt()` refuses a payload with no `exp` unless you
+pass `expiresIn`, and `jwt()`/`verifyJwt()` reject a token that carries no `exp`
+claim. A JWT cannot be revoked without rotating the secret — which signs every
+other session out at the same time — so a token that never expires is a
+credential you cannot take back. Pass `requireExp: false` only when the
+lifetime is bounded somewhere else.
+
+To inspect a token you are debugging, there is
+`unsafeDecodeJwtWithoutVerification()`. The name is the warning: it checks no
+signature, so anyone can hand you any payload. Never read identity, tenant or
+permissions from its result — use `verifyJwt()` or `ctx.state`.
 
 ### Session
 
@@ -767,14 +790,25 @@ On Bun and uWebSockets.js, `drain` is native. Node forwards the socket's `drain`
 
 ## Error Handling
 
+An unhandled error becomes `{ "status": 500, "message": "Internal Server Error",
+"errorId": "..." }`. **The thrown error's own message is never sent to the
+client** — a driver error carries constraint names, column names and the
+conflicting values themselves, which in a multi-tenant system is another
+tenant's data handed to whoever made the request. The real error is logged
+server-side under the same `errorId`, so a user's report points straight at it.
+
+Anything the client should see is an explicit decision: an `onError` handler, or
+a thrown `Response`. Both are passed through untouched.
+
 ```ts
 // App-level error handler
 app.onError((error, ctx) => {
   console.error(ctx.method, ctx.url, error);
-  return Response.json(
-    { message: error instanceof Error ? error.message : "Internal Server Error" },
-    { status: 500 },
-  );
+  // Map error types you own; do not pass `error.message` through.
+  if (error instanceof MyValidationError) {
+    return Response.json({ status: 400, issues: error.issues }, { status: 400 });
+  }
+  return Response.json({ message: "Internal Server Error" }, { status: 500 });
 });
 
 // Custom 404
