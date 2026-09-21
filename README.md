@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@388339c -->
+<!-- docs: sync from coderbuzz/codex@cf4da30 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -490,7 +490,7 @@ app.use(api); // without prefix — routes merged at root
 | Middleware | Description |
 |---|---|
 | `cors()` | CORS with dynamic origin resolver, custom headers, credentials |
-| `csrf()` | CSRF protection for form endpoints (skips JSON API) |
+| `csrf()` | CSRF protection — checks `Origin` on every unsafe request |
 | `secureHeaders()` | Helmet-inspired security headers (15+ headers) |
 | `ipRestriction()` | Allow/deny list by IP address |
 
@@ -788,6 +788,33 @@ On Bun and uWebSockets.js, `drain` is native. Node forwards the socket's `drain`
 
 ---
 
+## Request Validation
+
+A declared body schema **runs**, whether or not the handler reads it:
+
+```ts
+app.post("/jurnal", { json: JournalSchema }, async (ctx) => {
+  // Even a handler that never touches ctx.json gets a validated request —
+  // the schema is awaited before the handler is called.
+  return postJournal(await ctx.json);
+});
+```
+
+The body getters are still lazy and memoised, so reading `ctx.json` twice parses
+once. What changed is that declaring `{ json: … }` is a contract rather than a
+suggestion: a handler that read the body some other way, or forwarded `ctx.req`
+elsewhere, used to be served an unvalidated request and answer 200, with nothing
+reporting that the declared schema had gone unused.
+
+The cost falls only on routes that declare a body schema, which are exactly the
+routes that wanted the check.
+
+**Malformed bodies are 400, not `null`.** A body that is not valid JSON used to
+become `null`, so the handler read `null.amount`, that `TypeError` became a 500,
+and the real cause was never named anywhere.
+
+---
+
 ## Error Handling
 
 An unhandled error becomes `{ "status": 500, "message": "Internal Server Error",
@@ -964,6 +991,26 @@ const encrypted = await encryptString("hello world", key);
 const original = await decryptString(encrypted, key);
 ```
 
+**The key must be a base64 32-byte key.** Anything else is rejected. If what you
+have is a human-chosen passphrase from an env file, stretch it first:
+
+```ts
+import { generateSalt, deriveKeyFromPassphrase } from "@coderbuzz/velox";
+
+const salt = generateSalt();  // store it; a salt is not a secret, but it must be stable
+const key = await deriveKeyFromPassphrase(process.env.SESSION_PASSPHRASE!, salt);
+```
+
+`SESSION_SECRET="erp-rahasia-2026"` used as a key directly was a single SHA-256
+away from being guessed — minutes of GPU work from one captured cookie, and
+whoever guesses it can mint a valid session for any user in any tenant. PBKDF2
+at 600,000 iterations (the default) makes each guess expensive. Derive once at
+startup, not per request.
+
+To read data encrypted before this changed, pass
+`decryptString(value, oldSecret, { legacyKeyDerivation: true })` — long enough
+to re-encrypt it. There is no matching option on `encryptString`.
+
 ### Compression
 
 ```ts
@@ -987,6 +1034,44 @@ const fetchUser = memoize(
 // detected — pass `async: true` to get in-flight deduplication for it.
 const fetchOrg = memoize((id: string) => db.orgs.findById(id), { async: true });
 ```
+
+### CSRF
+
+```ts
+import { csrf } from "@coderbuzz/velox";
+
+app.post("/transfer", {
+  state: { protection: csrf({ origin: ["https://app.example.com"] }) },
+}, handler);
+```
+
+`Origin` is validated on every unsafe request (POST, PUT, PATCH, DELETE),
+**whatever the content type**. An earlier version skipped the check for JSON, on
+the premise that a browser cannot send a cross-origin JSON POST without a CORS
+preflight. That premise holds only while CORS is configured correctly — and an
+over-permissive CORS setup silently left every JSON endpoint unprotected, with
+both lines looking like good practice.
+
+A request with neither `Origin` nor `Referer` is rejected when its content type
+is one an HTML form can produce, and allowed otherwise: a non-browser client
+(curl, a mobile app, a service call) sends no `Origin`, and it is not what CSRF
+protects against.
+
+### WebSocket handler errors
+
+A throwing WebSocket handler is isolated from the others on the same socket, and
+the error is reported rather than swallowed:
+
+```ts
+import { onWsHandlerError } from "@coderbuzz/velox";
+
+onWsHandlerError((error, source) => metrics.increment("ws.handler_error", { source }));
+onWsHandlerError(null); // silence them — a decision, not an accident
+```
+
+The default writes to `console.error`. Without it, a handler that threw on one
+malformed payload simply stopped delivering, and the symptom reaching you was
+"sometimes the notification doesn't arrive".
 
 ### Ambient Request Context
 

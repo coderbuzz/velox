@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@388339c -->
+<!-- docs: sync from coderbuzz/codex@cf4da30 -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -183,6 +183,38 @@ rejection had no handler at all — enough to take the process down.
 - Routes without `response` schema: **zero overhead** — `applyResponseValidation` just calls `toResponse()` (same cost as before).
 - Throwing a `Response` from middleware/handler **bypasses** response validation entirely — `Response` instanceof check in executor's catch block returns early.
 - Response validation errors (body mismatch, status mismatch, header mismatch) are thrown as `Error` with descriptive messages: `"Response body validation failed: ..."`, `"Response status mismatch: expected 201, got 200"`, `"Response header \"x-id\" validation failed: ..."`.
+
+**Type surface (VLX-09, VLX-13).** velox does not depend on veta at runtime — a
+validator is any function of the right shape, from any library or written by
+hand. That neutrality has a cost the types now state explicitly:
+
+```ts
+type Validator<Out = any> = (val: any, ctx?: any) => Out;
+type ErrorHandler<S extends Schema = any, P extends string = string, TState = {}> =
+  (error: unknown, ctx: Context<S, P, TState>) => Response | Promise<Response>;
+type StateMiddleware = { [key: string]: (ctx: Context<any, any>) => unknown };
+```
+
+- `Validator<Out>` lets a schema state what it produces. Bare `Validator` is
+  still `Validator<any>`, so nothing existing changes. There is no real type
+  gate: an identity function satisfies it, and no type can fix that without a
+  runtime dependency.
+- `ErrorHandler` is generic, so a route-level `onError` can be written against
+  that route's schema and see typed `ctx.params` / `ctx.query` / `ctx.state`.
+- `StateMiddleware` returns `unknown` rather than `any`. As a constraint it
+  accepts every middleware just the same, but a caller holding one through this
+  type must narrow before reading a property. `InferState` still recovers each
+  middleware's real return type. What it cannot fix is a middleware whose own
+  return type is `any` — then `ctx.state.auth.tenantId` is unchecked, a typo is
+  `undefined`, and that `undefined` in a `WHERE tenant_id = ?` returns nothing,
+  or everything. Type the middleware's return value.
+
+`InferObject` and `ContainsUndefined` are duplicated from veta rather than
+imported. `tests/veta-contract.test.ts` asserts the two engines infer identical
+optionality for the same shape; if either copy drifts, that test stops
+compiling. Without it, the same schema could make a field required on one side
+and optional on the other, letting `undefined` reach code that was told the
+value is always present.
 
 **TypeScript type:**
 
@@ -377,6 +409,38 @@ const logger = (ctx) => {
   // void return — not in ctx.state
 };
 ```
+
+---
+
+## 5b. Declared body schemas run
+
+A route that declares `json`, `form` or `text` has that schema **awaited before
+the handler**, so declaring it is a contract rather than a suggestion.
+
+```ts
+app.post('/jurnal', { json: JournalSchema }, async (ctx) => {
+  return postJournal(await ctx.json);   // already validated before this line
+});
+```
+
+The body getters stay lazy and memoised — reading `ctx.json` twice parses once —
+but the executor reads it once itself before calling the handler. Any route with
+a body schema therefore uses the async executor, whatever its handler looks like.
+
+**Why:** validation only ran if the handler touched the getter. A handler that
+read the body another way, forwarded `ctx.req` elsewhere, or used only part of
+the payload was served an unvalidated request and answered 200, and nothing
+anywhere reported that the declared schema had gone unused. The inferred type of
+`ctx.json` made it look guaranteed.
+
+**Cost** falls only on routes that declare a body schema — the routes that
+wanted the check.
+
+**Malformed bodies are 400.** A body that is not valid JSON used to become
+`null`: the handler read `null.amount`, the `TypeError` became a 500, and the
+actual cause (malformed JSON) appeared nowhere. It is now
+`HttpError(400, 'Malformed JSON body')`, in all three runtime contexts. The same
+applies to an unparseable form body.
 
 ---
 
@@ -832,18 +896,57 @@ timeout({
 
 ### 8.10 CSRF Rules
 
-CSRF middleware **only** activates on:
+Applies to unsafe methods only: POST, PUT, PATCH, DELETE. GET, HEAD and OPTIONS
+always pass.
 
-- Unsafe methods: POST, PUT, PATCH, DELETE
-- Form-like content types: `application/x-www-form-urlencoded`,
-  `multipart/form-data`, `text/plain`
+Decision order on an unsafe request:
 
-**JSON APIs are automatically exempt.** `Content-Type: application/json`
-requests skip CSRF validation entirely.
+1. **`Origin` present** → must be allowed, or 403. **Content type is not
+   consulted.**
+2. **No `Origin`, `Referer` present** → its origin must be allowed, or 403.
+3. **Neither header** → 403 when the content type is form-producible
+   (`application/x-www-form-urlencoded`, `multipart/form-data`, `text/plain`, or
+   absent); allowed otherwise.
+
+**JSON is no longer exempt.** It used to be, on the premise that a browser
+cannot send a cross-origin `application/json` POST without a CORS preflight.
+True — while CORS is configured correctly. Combined with a permissive CORS setup
+the preflight always succeeded, `csrf()` skipped every JSON request, and the API
+had no CSRF protection at all, from two lines that both looked like good
+practice. Reading one header costs nothing; the hidden coupling cost a great
+deal.
+
+Step 3 is what keeps non-browser clients working: curl, a mobile app or a
+service call sends no `Origin`, and is not what CSRF protects against. A browser
+does send `Origin` on unsafe cross-origin requests, so the attack shape lands in
+step 1.
 
 ---
 
 ## 9. WebSocket
+
+### 9.0 Handler errors are reported
+
+```ts
+onWsHandlerError((error: unknown, source: string) => void | null): void
+```
+
+A throwing user handler is isolated from the other handlers on the same socket —
+one failure must not take the rest down — but it is no longer swallowed. The
+default reporter writes `[velox] WebSocket handler error in <source>:` to
+`console.error`; pass your own to route them to a logger or a counter, or `null`
+to silence them, which is then a decision rather than an accident.
+
+`source` is `'topic dispatch'` (pub/sub fan-out) or `'message handler'` (the
+Node adapter's inbound frame path).
+
+Previously both sites were empty `catch` blocks. A handler that threw on one
+malformed payload stopped delivering for that message with no log, no hook and
+no counter, and the symptom that reached you was "sometimes the notification
+doesn't arrive" — close to undiagnosable.
+
+A reporter that itself throws is caught, so it cannot escalate into the socket
+teardown path.
 
 ### 9.1 Basic Registration
 
@@ -1050,7 +1153,43 @@ const enc = await encryptString("data", key); // AES-256-GCM, base64 output
 const dec = await decryptString(enc, key);
 ```
 
-LRU key caching (64 entries) avoids repeated key derivation.
+```ts
+generateSecretKey(): string                  // base64, 32 random bytes
+generateSalt(): string                       // base64, 16 random bytes
+deriveKeyFromPassphrase(
+  passphrase: string,
+  salt: string,                              // base64, from generateSalt()
+  options?: { iterations?: number },         // default 600_000
+): Promise<string>                           // base64 32-byte key
+decryptString(encrypted, key, options?: { legacyKeyDerivation?: boolean })
+```
+
+**The key must be a base64 32-byte key.** Anything else throws, with a message
+naming both ways to get one. Previously the parameter was called `password` and
+was hashed once with SHA-256 — so `SESSION_SECRET="erp-rahasia-2026"` became the
+key. SHA-256 is fast and GPU-friendly: that is minutes of offline guessing from
+a single captured cookie, and whoever guesses it can mint a valid session for
+any user in any tenant.
+
+`deriveKeyFromPassphrase` is PBKDF2-HMAC-SHA256, 600,000 iterations by default
+(OWASP's floor). It is deliberately slow — derive once at startup, never per
+request. The salt is not a secret but must be stable: the same passphrase and
+salt must produce the same key, or yesterday's data does not decrypt. The
+iteration count is part of the recipe too; changing it changes the key.
+
+`legacyKeyDerivation` reproduces the old single-SHA-256 derivation so existing
+ciphertext can be read and re-encrypted. There is no equivalent on
+`encryptString`: the weak form cannot be written any more.
+
+LRU key caching (64 entries) avoids repeated key import. The cache is keyed by a
+digest of the secret, not the secret: this Map lives for the life of the process,
+and a plaintext session secret in it would appear verbatim in every heap and core
+dump.
+
+**What was already right, and is unchanged:** AES-GCM with a fresh random 12-byte
+IV per operation, IV prepended to the ciphertext, and GCM's authentication — so
+no padding oracle and no IV reuse. The cryptography was sound; the key derivation
+was not.
 
 ### 12.2 Compression
 
@@ -1494,6 +1633,7 @@ import {
   isNode,
   listDirectory,
   memoize,
+  onWsHandlerError,
   receiveFiles,
   saveFile,
   sendFile,
