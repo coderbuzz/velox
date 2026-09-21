@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@f1c7197 -->
+<!-- docs: sync from coderbuzz/codex@388339c -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -1098,7 +1098,54 @@ for the lifetime of the process. What it cannot give you is in-flight
 deduplication — the wrapper's shape (whether it has `.inflight`) is fixed when
 it is created, before any call has happened.
 
-### 12.4 URL
+### 12.4 Ambient Request Context
+
+```ts
+enableRequestContext(): void      // call once at startup, before serving
+disableRequestContext(): void     // mainly for tests
+isRequestContextEnabled(): boolean
+getRequestContext<S, P, TState>(): Context<S, P, TState>            // throws if none
+tryGetRequestContext<S, P, TState>(): Context<S, P, TState> | undefined
+```
+
+**Off by default.** With it off the cost is one boolean test per request;
+`AsyncLocalStorage` is not free and velox is built for throughput.
+
+**What it is for.** Code far from the handler — a repository, an audit hook, the
+`SET LOCAL` that drives row-level security — can read the current request
+without every caller in between remembering to pass it. A `tenantId` threaded by
+hand is a `string` among strings: when a new endpoint forgets it, nothing fails
+to compile and nothing fails at runtime, the query just runs against the wrong
+tenant.
+
+**`getRequestContext()` throws instead of returning `undefined`.** Code reading
+a tenant id from it is deciding which rows someone may see; `undefined` must
+stop it, not be carried forward. The two messages differ so the cause is
+obvious: "the ambient request context is off" (you never called
+`enableRequestContext()`) versus "no request in scope" (it is on, but this call
+is outside a request or escaped its async scope).
+
+**Mechanics.** Each request runs inside `AsyncLocalStorage.run()` with a mutable
+holder; the context factory fills the holder as soon as the `Context` exists.
+The scope has to be entered before the Context is built, which is why it is a
+holder and not the Context itself — `enterWith()` would avoid the holder and
+leak into whatever else shares the current tick, which on a server is other
+requests.
+
+**Covered:** route handlers, `state` middleware, `notFound` handlers, async
+handlers across `await`, and Promise-returning handlers not declared `async`
+(they resume inside the same scope). `getRequestContext() === ctx` inside a
+handler.
+
+**Not covered**, and no mechanism can cover it: anything that escaped the
+request's async scope — a callback pushed into a module-level array and invoked
+later, `setInterval`, a queue worker. Pass the value explicitly there.
+
+**Bridging to veta.** `safeParse(schema, body, getRequestContext())` hands the
+request context to validators that need it; `withContext()` on the veta side
+makes a missing one a `VetaError` rather than a `TypeError`.
+
+### 12.5 URL
 
 ```ts
 import { getPathname } from "@coderbuzz/velox";

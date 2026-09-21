@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@f1c7197 -->
+<!-- docs: sync from coderbuzz/codex@388339c -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -987,6 +987,55 @@ const fetchUser = memoize(
 // detected — pass `async: true` to get in-flight deduplication for it.
 const fetchOrg = memoize((id: string) => db.orgs.findById(id), { async: true });
 ```
+
+### Ambient Request Context
+
+Off by default. Turn it on once at startup, before serving:
+
+```ts
+import { enableRequestContext, getRequestContext } from "@coderbuzz/velox";
+
+enableRequestContext();
+```
+
+Then any code running during a request can reach it, without every caller in
+between passing it down:
+
+```ts
+// repository.ts — no ctx parameter anywhere
+import { getRequestContext } from "@coderbuzz/velox";
+
+export function currentTenant(): string {
+  return getRequestContext().state.tenantId;
+}
+```
+
+A `tenantId` threaded by hand through five layers is a `string` among strings.
+When the sixth endpoint forgets to pass it, nothing fails to compile and nothing
+fails at runtime — the query simply runs against the wrong tenant. That is not a
+problem discipline solves in a codebase mostly written by agents; it needs a
+mechanism.
+
+| | |
+|---|---|
+| `enableRequestContext()` | Turn it on. Call once, at startup |
+| `getRequestContext()` | The current `Context`. **Throws** when there is none |
+| `tryGetRequestContext()` | The current `Context`, or `undefined` |
+| `isRequestContextEnabled()` | Whether it is on |
+| `disableRequestContext()` | Turn it back off (mainly for tests) |
+
+`getRequestContext()` throws rather than returning `undefined` on purpose: code
+that reads a tenant id from it is deciding which rows someone may see, and it
+must stop rather than carry on with `undefined`. Use `tryGetRequestContext()`
+where absence is genuinely fine.
+
+It is built on `AsyncLocalStorage`, so it survives `await` and keeps concurrent
+requests apart. It does **not** reach code that escaped the request's async
+scope — a callback stored in a module-level array and invoked later, a
+`setInterval`, a queue worker. Pass the value explicitly there.
+
+**Why opt-in:** `AsyncLocalStorage` has a real per-request cost, and velox is
+built for throughput. With it off, the cost is one boolean test per request.
 
 ### Runtime Detection
 
