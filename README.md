@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@8a5374b -->
+<!-- docs: sync from coderbuzz/codex@f1c7197 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -823,6 +823,65 @@ app.get("/validate", {
 
 // Throw a Response to short-circuit
 app.get("/secret", () => { throw new Response("Forbidden", { status: 403 }); });
+```
+
+### HttpError
+
+`HttpError` carries the status it should be answered with, and unlike an
+arbitrary error its message **is** sent to the client — you wrote it, so it is
+an answer, not a leak.
+
+```ts
+import { HttpError } from "@coderbuzz/velox";
+
+throw new HttpError(404, "Journal not found");
+// → 404 { "status": 404, "message": "Journal not found" }
+
+throw new HttpError(403);
+// → 403 { "status": 403, "message": "Forbidden" }   ← default reason phrase
+
+throw new HttpError(409, "Reference already used", { ref: "INV-001" });
+// → 409 { "status": 409, "message": "Reference already used", "ref": "INV-001" }
+```
+
+A 5xx `HttpError` is answered as written and also logged — at that point
+something is wrong on your side, and the log is the only record of it.
+
+**Validation → 400.** Velox has no runtime dependency on a validation library,
+so it cannot recognise a failed schema by itself. The mapping lives in your
+application, in one place you can review:
+
+```ts
+import { safeParse } from "@coderbuzz/veta";
+import { HttpError } from "@coderbuzz/velox";
+
+app.post("/jurnal", async (ctx) => {
+  const parsed = safeParse(journalSchema, await ctx.json());
+  if (!parsed.ok) {
+    throw new HttpError(400, "Validation failed", { issues: parsed.issues });
+  }
+  return postJournal(parsed.value);
+});
+```
+
+Or once, app-wide:
+
+```ts
+import { VetaError } from "@coderbuzz/veta";
+
+app.onError((error, ctx) => {
+  // An onError handler replaces the default one, so it has to keep handling
+  // what the default did.
+  if (error instanceof HttpError) return error.toResponse();
+  if (error instanceof VetaError) {
+    return Response.json(
+      { status: 400, message: error.message, path: error.path },
+      { status: 400 },
+    );
+  }
+  console.error(ctx.method, ctx.url, error);
+  return Response.json({ message: "Internal Server Error" }, { status: 500 });
+});
 ```
 
 ---

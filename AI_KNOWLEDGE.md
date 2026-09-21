@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@8a5374b -->
+<!-- docs: sync from coderbuzz/codex@f1c7197 -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -386,7 +386,7 @@ const logger = (ctx) => {
 
 1. Route-level `onError` (highest priority)
 2. App/sub-app-level `onError` (set with `app.onError(...)`)
-3. Framework default — see 6.2
+3. Framework default — see 6.2, and 6.3 for `HttpError`
 
 ### 6.2 The default handler never echoes the error
 
@@ -422,7 +422,50 @@ Consequences to plan for:
 - Anything the client should see must be explicit: an `onError` handler, or a
   thrown `Response`. Both are passed through untouched.
 
-### 6.3 Throwing a Response
+### 6.3 HttpError — a status you chose
+
+```ts
+new HttpError(status: number, message?: string, details?: Record<string, unknown>)
+httpError.toResponse(): Response
+```
+
+Thrown anywhere a handler or middleware runs, and answered as written:
+
+```json
+{ "status": 404, "message": "Journal not found" }
+```
+
+`content-type: application/json`, status = `status`, and every key of `details`
+merged into the body alongside `status` and `message`.
+
+`message` defaults to the status' standard reason phrase for the statuses an
+application throws by hand (400, 401, 403, 404, 409, 422, 429, 500, 503, …); an
+unlisted status falls back to `HTTP <status>`, which is a hint to pass one.
+
+**Why its message is sent when a plain `Error`'s is not:** you constructed it,
+so it is an answer. An arbitrary error is a driver or library error whose
+message carries constraint names, column names and conflicting values.
+
+A 5xx `HttpError` is sent as written **and** logged (`[velox] unhandled error
+<id>`), because at that point something is wrong on this side.
+
+**Validation → 400.** Velox has no runtime dependency on a validation library,
+so it cannot recognise a `VetaError` by itself — see 2H in the audit. The
+mapping is one line in the application, which is where it can be reviewed:
+
+```ts
+const parsed = safeParse(schema, await ctx.json());
+if (!parsed.ok) throw new HttpError(400, 'Validation failed', { issues: parsed.issues });
+```
+
+`safeParse` (veta) returns every failure with a `path`, so the response carries
+a field-level list a form can render, rather than one message at a time.
+
+**An `onError` handler replaces the default handler entirely**, including its
+`HttpError` branch. If you install one, handle `HttpError` in it:
+`if (err instanceof HttpError) return err.toResponse();`
+
+### 6.4 Throwing a Response
 
 Throwing a `Response` **bypasses** `onError` entirely — it is sent directly:
 
@@ -432,7 +475,7 @@ throw new Response("Forbidden", { status: 403 });
 
 If you want `onError` to receive it, wrap in `Error` or catch it yourself.
 
-### 6.4 Route-Level onError
+### 6.5 Route-Level onError
 
 ```ts
 app.get("/path", {
@@ -444,13 +487,15 @@ app.get("/path", {
 }, handler);
 ```
 
-### 6.5 App-Level onError
+### 6.6 App-Level onError
 
 ```ts
 app.onError((error, ctx) => {
+  // An onError handler replaces the default one, so it has to keep doing what
+  // the default did — including answering HttpError and NOT echoing anything
+  // else's message.
+  if (error instanceof HttpError) return error.toResponse();
   console.error(ctx.method, ctx.url, error);
-  // Map error types you own. Do not pass `error.message` through: an onError
-  // handler overrides the default, including the part that keeps it out.
   if (error instanceof MyValidationError) {
     return Response.json({ status: 400, issues: error.issues }, { status: 400 });
   }
@@ -460,7 +505,7 @@ app.onError((error, ctx) => {
 
 When using `app.use()`, the sub-app's `onError` is inherited by its routes.
 
-### 6.6 notFound
+### 6.7 notFound
 
 ```ts
 // Global fallback
@@ -483,7 +528,7 @@ app.define({ user: () => getCurrentUser() }, (app) => {
 });
 ```
 
-### 6.7 Error Type Preservation
+### 6.8 Error Type Preservation
 
 Validation errors from body getters (`json`, `text`, `form`) propagate **as-is** to `onError` — no type wrapping:
 
