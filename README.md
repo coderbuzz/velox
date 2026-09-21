@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@ba4a5ed -->
+<!-- docs: sync from coderbuzz/codex@8a5374b -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
@@ -923,6 +923,10 @@ const fetchUser = memoize(
   async (id: string) => db.users.findById(id),
   { ttl: 30_000, maxSize: 500 },
 );
+
+// A function that returns a Promise without being written `async` is not
+// detected — pass `async: true` to get in-flight deduplication for it.
+const fetchOrg = memoize((id: string) => db.orgs.findById(id), { async: true });
 ```
 
 ### Runtime Detection

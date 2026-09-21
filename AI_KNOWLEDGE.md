@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@ba4a5ed -->
+<!-- docs: sync from coderbuzz/codex@8a5374b -->
 
 # Velox Framework — AI Expert Knowledge Reference
 
@@ -155,6 +155,26 @@ handler(ctx) → raw value
   └─ validateResponse(Response, schema.response)  ← status + headers validation
   └─ return Response → runtime adapter → HTTP write
 ```
+
+**Sync vs async execution.** Velox compiles two executors per route and picks
+one when the route is registered, using `fn.constructor.name === 'AsyncFunction'`
+on the handler and on each `state` middleware. That check is an optimisation, not
+a correctness rule: a function that returns a Promise **without** being declared
+`async` — `app.get('/j/:id', (ctx) => service.find(ctx.params.id))` — is an
+ordinary `Function`, and so is an `async` function a build has downlevelled.
+
+Those land on the sync executor, which now tests the returned value instead of
+trusting the guess: anything with a callable `.then` hands the rest of the
+request to an async continuation. This holds for state middleware too, and a
+chain that has gone async awaits the remaining middleware in order rather than
+reverting to sync.
+
+The cost is one `typeof value.then` test per request on the sync path. What it
+buys: before, such a handler was treated as synchronous, so the Promise **object**
+was serialised — `{}`, with status 200, because a Promise has no own enumerable
+properties. For a read that is an empty screen; for a write it is worse, since
+the 200 was sent before the work finished, and if the work then failed the
+rejection had no handler at all — enough to take the process down.
 
 **Key design decisions:**
 
@@ -1011,6 +1031,7 @@ const fn = memoize(
     maxSize: 256, // default: 256 entries
     ttl: 30_000, // ms (0 = no expiry)
     key: (id) => id, // custom key resolver (default: first arg)
+    async: true, // force the async strategy (see below)
   },
 );
 
@@ -1018,6 +1039,19 @@ fn.cache; // Map — direct access
 fn.clear(); // clear all entries
 // Async version also has: fn.inflight (in-flight deduplication Map)
 ```
+
+**Strategy detection.** The strategy is chosen once, when `memoize()` is called,
+from `fn.constructor.name === 'AsyncFunction'`. That does not recognise
+`(id) => db.find(id)` — an ordinary function returning a Promise — nor an
+`async` function a build has downlevelled. Such a function gets the sync
+strategy, and the cache holds the Promise rather than its value.
+
+Pass `{ async: true }` for those. Without it the failure is no longer permanent:
+the sync strategy notices a cached Promise and evicts the entry if it rejects,
+so a transient error is retried instead of being replayed to every later caller
+for the lifetime of the process. What it cannot give you is in-flight
+deduplication — the wrapper's shape (whether it has `.inflight`) is fixed when
+it is created, before any call has happened.
 
 ### 12.4 URL
 
