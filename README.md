@@ -1,8 +1,8 @@
-<!-- docs: sync from coderbuzz/codex@cf4da30 -->
+<!-- docs: sync from coderbuzz/codex@7d74651 -->
 
 # Velox &mdash; `@coderbuzz/velox`
 
-> **#1 fastest TypeScript HTTP framework — faster than Elysia, Hono, and Express across every benchmark.** Runtime-agnostic with full type safety.
+> **TypeScript HTTP framework benchmarked at 269K req/s on Bun — ahead of Elysia, Hono, and Express in the benchmarks below.** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 <p align="center">
   <a href="https://www.npmjs.com/package/@coderbuzz/velox"><img src="https://img.shields.io/npm/v/@coderbuzz/velox.svg?style=flat-square" alt="npm version" /></a>
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **269K req/s** for simple GET and **119K req/s** for validation POST — outperforming Elysia, Hono, and Express on every benchmark. Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
+Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun — ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
 
 ---
 
@@ -21,7 +21,7 @@ Velox is the fastest TypeScript HTTP framework on Bun, topping the charts at **2
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun (winner) |
+| Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Veta** — <5 KB gzip, coercion built-in |
 | Type inference through middleware | Good | Partial | None | **Full** — `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -45,13 +45,13 @@ Velox on Bun (Apple M-series, oha `-c 100 -z 10s`):
 | Validation POST (veta schema) | **~119K req/s** |
 
 Comparative numbers (simple GET, Bun):
-- **@coderbuzz/velox**: **269,388 req/s** (winner)
+- **@coderbuzz/velox**: **269,388 req/s**
 - **Elysia**: 262,685 req/s (1.026x factor)
 - **Hono**: 170,044 req/s (1.58x factor)
 - **Express**: 100,762 req/s (2.67x factor)
 
 Validation POST (veta schema):
-- **@coderbuzz/velox**: **119,058 req/s** (winner)
+- **@coderbuzz/velox**: **119,058 req/s**
 - **Elysia**: 94,776 req/s (1.26x factor)
 - **Hono**: 74,657 req/s (1.60x factor)
 - **Express**: 48,652 req/s (2.45x factor)
@@ -136,7 +136,7 @@ const { hostname, port } = await app.run();
 console.log(`Listening on ${hostname}:${port}`);
 ```
 
-That's it. A full HTTP server in 6 lines. Now let's build something real.
+That's it — a full HTTP server in 6 lines.
 
 ---
 
