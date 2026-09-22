@@ -1,6 +1,6 @@
-<!-- docs: sync from coderbuzz/codex@7d74651 -->
+<!-- docs: sync from coderbuzz/codex@200be78 -->
 
-# Velox Framework — AI Expert Knowledge Reference
+# Velox Framework: AI Expert Knowledge Reference
 
 **Package**: `@coderbuzz/velox`\
 **Purpose**: This document is a comprehensive reference for AI agents generating
@@ -107,7 +107,7 @@ coerce(number()); // "42" → 42
 coerce(boolean()); // "true" → true
 coerce(date()); // "2024-01-01" → Date
 
-// optional: allows undefined — omits the field from required type
+// optional: allows undefined, omits the field from required type
 optional(string());
 
 // object: validates a JSON body shape
@@ -141,8 +141,8 @@ response?: {
 
 | Return Type | Body | Status | Headers |
 |---|---|---|---|
-| `object` / `string` / `null` / `undefined` | Validator applied to raw value | If `response.status` set → passed as `defaultStatus` to `toResponse()` | Skipped — raw values don't have headers yet |
-| `instanceof Response` | Body validation skipped | `response.status` compared against actual `Response.status` — throws on mismatch | Each key in `response.headers` validated with its Validator |
+| `object` / `string` / `null` / `undefined` | Validator applied to raw value | If `response.status` set → passed as `defaultStatus` to `toResponse()` | Skipped: raw values don't have headers yet |
+| `instanceof Response` | Body validation skipped | `response.status` compared against actual `Response.status`: throws on mismatch | Each key in `response.headers` validated with its Validator |
 
 **Execution order in executor:**
 
@@ -160,7 +160,7 @@ handler(ctx) → raw value
 one when the route is registered, using `fn.constructor.name === 'AsyncFunction'`
 on the handler and on each `state` middleware. That check is an optimisation, not
 a correctness rule: a function that returns a Promise **without** being declared
-`async` — `app.get('/j/:id', (ctx) => service.find(ctx.params.id))` — is an
+`async` (for example `app.get('/j/:id', (ctx) => service.find(ctx.params.id))`) is an
 ordinary `Function`, and so is an `async` function a build has downlevelled.
 
 Those land on the sync executor, which now tests the returned value instead of
@@ -171,20 +171,20 @@ reverting to sync.
 
 The cost is one `typeof value.then` test per request on the sync path. What it
 buys: before, such a handler was treated as synchronous, so the Promise **object**
-was serialised — `{}`, with status 200, because a Promise has no own enumerable
+was serialised: `{}`, with status 200, because a Promise has no own enumerable
 properties. For a read that is an empty screen; for a write it is worse, since
 the 200 was sent before the work finished, and if the work then failed the
-rejection had no handler at all — enough to take the process down.
+rejection had no handler at all, enough to take the process down.
 
 **Key design decisions:**
 
-- Body validation happens on raw value, NOT after serialization to Response — zero parsing overhead.
+- Body validation happens on raw value, NOT after serialization to Response. Zero parsing overhead.
 - Status/headers validation happens AFTER `onFinish` callbacks, so cookies appended via `setCookie` are included in the validated headers.
-- Routes without `response` schema: **zero overhead** — `applyResponseValidation` just calls `toResponse()` (same cost as before).
-- Throwing a `Response` from middleware/handler **bypasses** response validation entirely — `Response` instanceof check in executor's catch block returns early.
+- Routes without `response` schema: **zero overhead**, `applyResponseValidation` just calls `toResponse()` (same cost as before).
+- Throwing a `Response` from middleware/handler **bypasses** response validation entirely: `Response` instanceof check in executor's catch block returns early.
 - Response validation errors (body mismatch, status mismatch, header mismatch) are thrown as `Error` with descriptive messages: `"Response body validation failed: ..."`, `"Response status mismatch: expected 201, got 200"`, `"Response header \"x-id\" validation failed: ..."`.
 
-**Type surface (VLX-09, VLX-13).** velox does not depend on veta at runtime — a
+**Type surface (VLX-09, VLX-13).** velox does not depend on veta at runtime: a
 validator is any function of the right shape, from any library or written by
 hand. That neutrality has a cost the types now state explicitly:
 
@@ -205,7 +205,7 @@ type StateMiddleware = { [key: string]: (ctx: Context<any, any>) => unknown };
   accepts every middleware just the same, but a caller holding one through this
   type must narrow before reading a property. `InferState` still recovers each
   middleware's real return type. What it cannot fix is a middleware whose own
-  return type is `any` — then `ctx.state.auth.tenantId` is unchecked, a typo is
+  return type is `any`: then `ctx.state.auth.tenantId` is unchecked, a typo is
   `undefined`, and that `undefined` in a `WHERE tenant_id = ?` returns nothing,
   or everything. Type the middleware's return value.
 
@@ -291,15 +291,15 @@ For strict excess property checking, use a type-level `Exact<T>` wrapper if need
 All fields are lazily evaluated on first access:
 
 ```ts
-ctx.url          // string — full URL
-ctx.method       // string — "GET", "POST", etc.
+ctx.url          // string: full URL
+ctx.method       // string: "GET", "POST", etc.
 ctx.params       // parsed + validated route params
 ctx.query        // parsed + validated query string
 ctx.headers      // parsed + validated headers (all keys lowercase)
 ctx.cookies      // parsed + validated cookies
-ctx.json         // Promise<T> — parsed + validated JSON body
-ctx.text         // Promise<T> — raw text body
-ctx.form         // Promise<T> — parsed form data (as plain object if validated)
+ctx.json         // Promise<T>: parsed + validated JSON body
+ctx.text         // Promise<T>: raw text body
+ctx.form         // Promise<T>: parsed form data (as plain object if validated)
 ctx.body         // raw body stream (runtime-specific)
 ctx.state        // accumulated middleware state
 ctx.remoteInfo   // { address: string; port: number }
@@ -343,7 +343,7 @@ state: {
 app.get("/path", { state: { auth: myAuthMiddleware } }, handler);
 ```
 
-#### `apply()` — Global or prefix-scoped
+#### `apply()`: Global or prefix-scoped
 
 ```ts
 // Applies to ALL routes (pattern "/*")
@@ -356,7 +356,7 @@ app.apply("/*", (ctx) => console.log(ctx.method, ctx.url));
 app.apply("/api/*", { rateLimit: checkRateLimit });
 ```
 
-#### `define()` — Lexically scoped with type inference
+#### `define()`: Lexically scoped with type inference
 
 ```ts
 app.define(
@@ -368,7 +368,7 @@ app.define(
     // TypeScript knows ctx.state.userId: string, ctx.state.isAdmin: boolean
     app.get("/me", (ctx) => Response.json({ userId: ctx.state.userId }));
 
-    // Nested define — accumulates state
+    // Nested define: accumulates state
     app.define({ extra: () => "data" }, (app) => {
       app.get("/extra", (ctx) =>
         Response.json({
@@ -406,7 +406,7 @@ const logger = (ctx) => {
       `${ctx.method} ${ctx.url} ${resp?.status} ${Date.now() - start}ms`,
     );
   });
-  // void return — not in ctx.state
+  // void return: not in ctx.state
 };
 ```
 
@@ -423,7 +423,7 @@ app.post('/jurnal', { json: JournalSchema }, async (ctx) => {
 });
 ```
 
-The body getters stay lazy and memoised — reading `ctx.json` twice parses once —
+The body getters stay lazy and memoised (reading `ctx.json` twice parses once),
 but the executor reads it once itself before calling the handler. Any route with
 a body schema therefore uses the async executor, whatever its handler looks like.
 
@@ -433,7 +433,7 @@ the payload was served an unvalidated request and answered 200, and nothing
 anywhere reported that the declared schema had gone unused. The inferred type of
 `ctx.json` made it look guaranteed.
 
-**Cost** falls only on routes that declare a body schema — the routes that
+**Cost** falls only on routes that declare a body schema: the routes that
 wanted the check.
 
 **Malformed bodies are 400.** A body that is not valid JSON used to become
@@ -450,7 +450,7 @@ applies to an unparseable form body.
 
 1. Route-level `onError` (highest priority)
 2. App/sub-app-level `onError` (set with `app.onError(...)`)
-3. Framework default — see 6.2, and 6.3 for `HttpError`
+3. Framework default: see 6.2, and 6.3 for `HttpError`
 
 ### 6.2 The default handler never echoes the error
 
@@ -468,14 +468,14 @@ so a user quoting the id from their screen leads straight to the stack trace.
 `errorId` is `<base36 ms timestamp>-<base36 counter>`: unique within a process,
 not globally, and not a secret.
 
-This applies to every runtime path — the Node and uWS servers use the same
+This applies to every runtime path: the Node and uWS servers use the same
 response for an error escaping the executor, instead of writing the message to
 the socket as plain text.
 
 Why it matters more than it looks: the most common 500 in a database-backed app
 is a driver error, and those carry the constraint name, the column names and the
 conflicting values (`Key (tenant_id, ref)=(42, INV-001) already exists`). Echoing
-that hands one tenant's data, and the schema, to whoever sent the request —
+that hands one tenant's data, and the schema, to whoever sent the request,
 including an unauthenticated one, if the route is public.
 
 Consequences to plan for:
@@ -486,7 +486,7 @@ Consequences to plan for:
 - Anything the client should see must be explicit: an `onError` handler, or a
   thrown `Response`. Both are passed through untouched.
 
-### 6.3 HttpError — a status you chose
+### 6.3 HttpError: a status you chose
 
 ```ts
 new HttpError(status: number, message?: string, details?: Record<string, unknown>)
@@ -514,7 +514,7 @@ A 5xx `HttpError` is sent as written **and** logged (`[velox] unhandled error
 <id>`), because at that point something is wrong on this side.
 
 **Validation → 400.** Velox has no runtime dependency on a validation library,
-so it cannot recognise a `VetaError` by itself — see 2H in the audit. The
+so it cannot recognise a `VetaError` by itself: see 2H in the audit. The
 mapping is one line in the application, which is where it can be reviewed:
 
 ```ts
@@ -531,7 +531,7 @@ a field-level list a form can render, rather than one message at a time.
 
 ### 6.4 Throwing a Response
 
-Throwing a `Response` **bypasses** `onError` entirely — it is sent directly:
+Throwing a `Response` **bypasses** `onError` entirely: it is sent directly.
 
 ```ts
 throw new Response("Forbidden", { status: 403 });
@@ -556,7 +556,7 @@ app.get("/path", {
 ```ts
 app.onError((error, ctx) => {
   // An onError handler replaces the default one, so it has to keep doing what
-  // the default did — including answering HttpError and NOT echoing anything
+  // the default did: including answering HttpError and NOT echoing anything
   // else's message.
   if (error instanceof HttpError) return error.toResponse();
   console.error(ctx.method, ctx.url, error);
@@ -594,7 +594,7 @@ app.define({ user: () => getCurrentUser() }, (app) => {
 
 ### 6.8 Error Type Preservation
 
-Validation errors from body getters (`json`, `text`, `form`) propagate **as-is** to `onError` — no type wrapping:
+Validation errors from body getters (`json`, `text`, `form`) propagate **as-is** to `onError`: no type wrapping.
 
 ```ts
 import { VetaError } from "@coderbuzz/veta";
@@ -608,13 +608,13 @@ app.onError((err) => {
     );
   }
 
-  // Error dari handler — log detailnya, jangan kirim ke klien
+  // Error dari handler: log detailnya, jangan kirim ke klien
   console.error(err);
   return Response.json({ message: "Internal Server Error" }, { status: 500 });
 });
 ```
 
-This is consistent with `params`, `query`, `cookies`, and `headers` — validation errors from ALL schema keys preserve their original error type (e.g., `VetaError`). No try-catch wrapping in body getters.
+This is consistent with `params`, `query`, `cookies`, and `headers`: validation errors from ALL schema keys preserve their original error type (e.g., `VetaError`). No try-catch wrapping in body getters.
 
 **Before v0.3.24**: body getters caught VetaError and re-threw as generic `Error("JSON Body validation failed: ...")`, destroying `instanceof` checks and `err.path`.
 
@@ -657,7 +657,7 @@ app.use("/api", corsApp);
 
 app.use(logger());
 
-// WRONG — cors() and logger() return App, not a middleware function
+// WRONG: cors() and logger() return App, not a middleware function
 app.apply("/*", cors()); // ❌
 ```
 
@@ -693,10 +693,10 @@ bodyLimit({
 ```
 
 **Behavior:**
-- Only applies to POST, PUT, PATCH, DELETE — safe methods (GET/HEAD/OPTIONS) pass through.
+- Only applies to POST, PUT, PATCH, DELETE: safe methods (GET/HEAD/OPTIONS) pass through.
 - If `Content-Length` exceeds `maxSize` → 413 Payload Too Large (or `onError` response).
 - If `Content-Length` is missing → 411 Length Required (or `onError` response).
-- Does not read the body stream — relies on Content-Length header for efficiency.
+- Does not read the body stream: relies on Content-Length header for efficiency.
 
 ### 8.4 JWT / JWK Options
 
@@ -709,7 +709,7 @@ jwt({
   headerName?: string,      // default: 'authorization'
   prefix?: string,          // default: 'Bearer'
   clockTolerance?: number,  // seconds, default: 0
-  requireExp?: boolean,     // default: true — reject a token with no exp claim
+  requireExp?: boolean,     // default: true, reject a token with no exp claim
 })
 
 jwk({
@@ -720,7 +720,7 @@ jwk({
   headerName?: string,      // default: 'authorization'
   prefix?: string,          // default: 'Bearer'
   clockTolerance?: number,  // seconds
-  requireExp?: boolean,     // default: true — reject a token with no exp claim
+  requireExp?: boolean,     // default: true, reject a token with no exp claim
   cacheTtl?: number,        // ms, default: 600_000 (10 min)
 })
 ```
@@ -756,14 +756,14 @@ unsafeDecodeJwtWithoutVerification(token: string): { header: any; payload: JWTPa
 - **Expiry is mandatory in both directions.** `signJwt()` throws unless the
   payload has `exp` or you pass `expiresIn` (seconds, positive and finite;
   `exp` on the payload wins). `verifyJwt()`, `jwt()` and `jwk()` reject a token
-  with no `exp` claim — `requireExp: false` opts out. A JWT is stateless: a
+  with no `exp` claim. `requireExp: false` opts out. A JWT is stateless: a
   leaked token cannot be revoked except by rotating the secret, which signs
   every other session out with it, so a token that never expires is a credential
   you cannot take back.
 - `signJwt()` does not mutate the payload you pass; `exp` is added to a copy.
 - The third argument of `signJwt()` still accepts a bare algorithm string.
 - Error messages returned to client are generic (`'JWT verification failed'`);
-  the reason is written to `console.warn` with the `[velox]` prefix — a missing
+  the reason is written to `console.warn` with the `[velox]` prefix. A missing
   `exp` and a bad signature are the same 401 to the caller, and only the log
   tells them apart.
 - `unsafeDecodeJwtWithoutVerification()` (formerly `decodeJwt`) verifies nothing.
@@ -773,7 +773,7 @@ unsafeDecodeJwtWithoutVerification(token: string): { header: any; payload: JWTPa
 
 **JWK notes:**
 - JWKS fetch has a 5-second timeout (AbortSignal).
-- Cache is keyed by URL — different JWKS endpoints don't corrupt each other.
+- Cache is keyed by URL, different JWKS endpoints don't corrupt each other.
 - Unknown `kid` in JWT header is rejected immediately (no algorithm fallback).
 
 ### 8.5 CORS Options
@@ -799,19 +799,19 @@ surfaces at startup, not on the first cross-origin request.
 Why it is not merely a spec technicality: browsers refuse
 `Access-Control-Allow-Origin: *` on credentialed requests, and the way around
 that refusal is to echo the caller's own `Origin` back. That turns "allow
-everyone, with cookies" into a configuration the browser accepts — so any page a
+everyone, with cookies" into a configuration the browser accepts, so any page a
 signed-in user opens can `fetch(..., { credentials: 'include' })` your API and
 read the response. It also removes the only thing protecting JSON endpoints from
 CSRF, since `csrf()` treats a successful preflight as the check.
 
-A resolver function may still be used with `credentials: true` — it is explicit
+A resolver function may still be used with `credentials: true`: it is explicit
 code, not a default. If such a resolver returns `'*'`, no `Access-Control-Allow-Origin`
 header is sent at all.
 
 **Usage patterns:**
 
 ```ts
-// Mount at root (simplest) — handles all routes
+// Mount at root (simplest): handles all routes
 const c = cors();
 c.get("/data", handler);
 app.use(c);
@@ -819,10 +819,10 @@ app.use(c);
 // Mount at prefix
 app.use("/api", c);
 
-// Array origin — non-matching origins denied (no ACAO header)
+// Array origin: non-matching origins denied (no ACAO header)
 cors({ origin: ["https://a.com", "https://b.com"] });
 
-// Function origin — return empty string to deny
+// Function origin: return empty string to deny
 cors({ origin: (o) => o.startsWith("https://trusted") ? o : "" });
 ```
 
@@ -844,7 +844,7 @@ session({
 ```
 
 Returns `T` on success, `Response` to short-circuit. Null/undefined triggers
-`onUnauthorized`. Runs as async always — no constructor.name detection,
+`onUnauthorized`. Runs as async always: no constructor.name detection,
 works correctly under bundlers (esbuild, tsup, webpack).
 
 ### 8.7 basicAuth Options
@@ -910,7 +910,7 @@ Decision order on an unsafe request:
 
 **JSON is no longer exempt.** It used to be, on the premise that a browser
 cannot send a cross-origin `application/json` POST without a CORS preflight.
-True — while CORS is configured correctly. Combined with a permissive CORS setup
+True, but only while CORS is configured correctly. Combined with a permissive CORS setup
 the preflight always succeeded, `csrf()` skipped every JSON request, and the API
 had no CSRF protection at all, from two lines that both looked like good
 practice. Reading one header costs nothing; the hidden coupling cost a great
@@ -931,8 +931,8 @@ step 1.
 onWsHandlerError((error: unknown, source: string) => void | null): void
 ```
 
-A throwing user handler is isolated from the other handlers on the same socket —
-one failure must not take the rest down — but it is no longer swallowed. The
+A throwing user handler is isolated from the other handlers on the same socket
+(one failure must not take the rest down), but it is no longer swallowed. The
 default reporter writes `[velox] WebSocket handler error in <source>:` to
 `console.error`; pass your own to route them to a logger or a counter, or `null`
 to silence them, which is then a decision rather than an accident.
@@ -943,7 +943,7 @@ Node adapter's inbound frame path).
 Previously both sites were empty `catch` blocks. A handler that threw on one
 malformed payload stopped delivering for that message with no log, no hook and
 no counter, and the symptom that reached you was "sometimes the notification
-doesn't arrive" — close to undiagnosable.
+doesn't arrive," close to undiagnosable.
 
 A reporter that itself throws is caught, so it cannot escalate into the socket
 teardown path.
@@ -1036,20 +1036,20 @@ On Bun, options across multiple WebSocket routes use the strictest explicit payl
 
 ---
 
-## 10. Velox Ecosystem — Binary WebSocket Protocol
+## 10. Velox Ecosystem: Binary WebSocket Protocol
 
 The binary Wire Protocol (formerly KBWP) was extracted from velox into separate packages to keep the core lean:
 
 | Package | What it provides | Velox dependency? |
 |---|---|---|
-| `@coderbuzz/velox-ws-wire` | `encode()`, `decode()`, `encodedSize()` — pure binary framing codec | No |
-| `@coderbuzz/velox-ws-wire-client` | `WireClient` — fault-tolerant WebSocket client with binary protocol | No |
-| `@coderbuzz/velox-ws-wire-server` | `wireProtocol()` — server-side handler, mount via `app.use()` | Yes |
+| `@coderbuzz/velox-ws-wire` | `encode()`, `decode()`, `encodedSize()`: pure binary framing codec | No |
+| `@coderbuzz/velox-ws-wire-client` | `WireClient`: fault-tolerant WebSocket client with binary protocol | No |
+| `@coderbuzz/velox-ws-wire-server` | `wireProtocol()`: server-side handler, mount via `app.use()` | Yes |
 
 **Warning:** `WSClient`, `wsClientProtocol`, `WsClientState`, `WsDefinition`, `WsClientOptions` were removed from velox in v0.5.0. Import from the new packages instead:
 
 ```ts
-// old — no longer in @coderbuzz/velox
+// old: no longer in @coderbuzz/velox
 import { WSClient, wsClientProtocol } from "@coderbuzz/velox"; // ❌
 
 // new
@@ -1148,7 +1148,7 @@ import {
   generateSecretKey,
 } from "@coderbuzz/velox";
 
-const key = generateSecretKey(); // sync — returns base64 string
+const key = generateSecretKey(); // sync, returns base64 string
 const enc = await encryptString("data", key); // AES-256-GCM, base64 output
 const dec = await decryptString(enc, key);
 ```
@@ -1166,13 +1166,13 @@ decryptString(encrypted, key, options?: { legacyKeyDerivation?: boolean })
 
 **The key must be a base64 32-byte key.** Anything else throws, with a message
 naming both ways to get one. Previously the parameter was called `password` and
-was hashed once with SHA-256 — so `SESSION_SECRET="erp-rahasia-2026"` became the
+was hashed once with SHA-256, so `SESSION_SECRET="erp-rahasia-2026"` became the
 key. SHA-256 is fast and GPU-friendly: that is minutes of offline guessing from
 a single captured cookie, and whoever guesses it can mint a valid session for
 any user in any tenant.
 
 `deriveKeyFromPassphrase` is PBKDF2-HMAC-SHA256, 600,000 iterations by default
-(OWASP's floor). It is deliberately slow — derive once at startup, never per
+(OWASP's floor). It is deliberately slow: derive once at startup, never per
 request. The salt is not a secret but must be stable: the same passphrase and
 salt must produce the same key, or yesterday's data does not decrypt. The
 iteration count is part of the recipe too; changing it changes the key.
@@ -1187,7 +1187,7 @@ and a plaintext session secret in it would appear verbatim in every heap and cor
 dump.
 
 **What was already right, and is unchanged:** AES-GCM with a fresh random 12-byte
-IV per operation, IV prepended to the ciphertext, and GCM's authentication — so
+IV per operation, IV prepended to the ciphertext, and GCM's authentication, so
 no padding oracle and no IV reuse. The cryptography was sound; the key derivation
 was not.
 
@@ -1219,14 +1219,14 @@ const fn = memoize(
   },
 );
 
-fn.cache; // Map — direct access
+fn.cache; // Map, direct access
 fn.clear(); // clear all entries
 // Async version also has: fn.inflight (in-flight deduplication Map)
 ```
 
 **Strategy detection.** The strategy is chosen once, when `memoize()` is called,
 from `fn.constructor.name === 'AsyncFunction'`. That does not recognise
-`(id) => db.find(id)` — an ordinary function returning a Promise — nor an
+`(id) => db.find(id)` (an ordinary function returning a Promise), nor an
 `async` function a build has downlevelled. Such a function gets the sync
 strategy, and the cache holds the Promise rather than its value.
 
@@ -1234,7 +1234,7 @@ Pass `{ async: true }` for those. Without it the failure is no longer permanent:
 the sync strategy notices a cached Promise and evicts the entry if it rejects,
 so a transient error is retried instead of being replayed to every later caller
 for the lifetime of the process. What it cannot give you is in-flight
-deduplication — the wrapper's shape (whether it has `.inflight`) is fixed when
+deduplication: the wrapper's shape (whether it has `.inflight`) is fixed when
 it is created, before any call has happened.
 
 ### 12.4 Ambient Request Context
@@ -1250,8 +1250,8 @@ tryGetRequestContext<S, P, TState>(): Context<S, P, TState> | undefined
 **Off by default.** With it off the cost is one boolean test per request;
 `AsyncLocalStorage` is not free and velox is built for throughput.
 
-**What it is for.** Code far from the handler — a repository, an audit hook, the
-`SET LOCAL` that drives row-level security — can read the current request
+**What it is for.** Code far from the handler (a repository, an audit hook, the
+`SET LOCAL` that drives row-level security) can read the current request
 without every caller in between remembering to pass it. A `tenantId` threaded by
 hand is a `string` among strings: when a new endpoint forgets it, nothing fails
 to compile and nothing fails at runtime, the query just runs against the wrong
@@ -1267,7 +1267,7 @@ is outside a request or escaped its async scope).
 **Mechanics.** Each request runs inside `AsyncLocalStorage.run()` with a mutable
 holder; the context factory fills the holder as soon as the `Context` exists.
 The scope has to be entered before the Context is built, which is why it is a
-holder and not the Context itself — `enterWith()` would avoid the holder and
+holder and not the Context itself: `enterWith()` would avoid the holder and
 leak into whatever else shares the current tick, which on a server is other
 requests.
 
@@ -1277,7 +1277,7 @@ handlers across `await`, and Promise-returning handlers not declared `async`
 handler.
 
 **Not covered**, and no mechanism can cover it: anything that escaped the
-request's async scope — a callback pushed into a module-level array and invoked
+request's async scope: a callback pushed into a module-level array and invoked
 later, `setInterval`, a queue worker. Pass the value explicitly there.
 
 **Bridging to veta.** `safeParse(schema, body, getRequestContext())` hands the
@@ -1550,14 +1550,14 @@ app.get("/events", () => {
 | Mistake                                                          | Fix                                                                                                     |
 | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `app.use(cors(...))` without defining routes inside the cors App | Define routes inside: `const c = cors(); c.get(...); app.use(c)`                                        |
-| `app.use(logger())` expects routes inside logger App             | Mount as global: `app.use(logger())` is correct — logger applies via `apply("/*")` internally           |
+| `app.use(logger())` expects routes inside logger App             | Mount as global: `app.use(logger())` is correct, logger applies via `apply("/*")` internally           |
 | `ctx.params.id` in query validation                              | Params come from URL path segments, not query string                                                    |
 | Forgetting `await` on `ctx.json`, `ctx.text`, `ctx.form`         | These are always `Promise`; always `await` them                                                         |
-| Using `generateSecretKey()` with `await`                         | It is **sync** — no `await` needed                                                                      |
+| Using `generateSecretKey()` with `await`                         | It is **sync**: no `await` needed                                                                      |
 | Setting cookies after `return new Response(...)`                 | Use `ctx.setCookie()` before returning; it hooks via `onFinish`                                         |
 | Accessing `ctx.state.auth` before auth middleware runs           | State is populated in order; sequential middleware can read earlier state via `(ctx.state as any).auth` |
 | Passing schema validators to `cors()`                            | CORS doesn't accept schema. Use `cors()` → mount with `use()`                                           |
-| Using `app.apply()` with `cors()` return value                   | Wrong — `cors()` returns an App, not a middleware function                                              |
+| Using `app.apply()` with `cors()` return value                   | Wrong: `cors()` returns an App, not a middleware function                                              |
 
 ---
 
@@ -1614,7 +1614,7 @@ import type {
   WsPeer,
 } from "@coderbuzz/velox";
 
-// Wire Protocol — separate packages (not in velox)
+// Wire Protocol: separate packages (not in velox)
 // import { encode, decode } from "@coderbuzz/velox-ws-wire";
 // import { WireClient } from "@coderbuzz/velox-ws-wire-client";
 // import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";

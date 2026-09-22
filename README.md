@@ -1,8 +1,8 @@
-<!-- docs: sync from coderbuzz/codex@7d74651 -->
+<!-- docs: sync from coderbuzz/codex@200be78 -->
 
-# Velox &mdash; `@coderbuzz/velox`
+# Velox: `@coderbuzz/velox`
 
-> **TypeScript HTTP framework benchmarked at 269K req/s on Bun — ahead of Elysia, Hono, and Express in the benchmarks below.** Runtime-agnostic with full type safety.
+> **TypeScript HTTP framework benchmarked at 269K req/s on Bun, ahead of Elysia, Hono, and Express in the benchmarks below.** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 <p align="center">
   <a href="https://www.npmjs.com/package/@coderbuzz/velox"><img src="https://img.shields.io/npm/v/@coderbuzz/velox.svg?style=flat-square" alt="npm version" /></a>
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun — ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware — all in one framework.
+Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -22,14 +22,14 @@ Velox reaches **269K req/s** for simple GET and **119K req/s** for validation PO
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
 | Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun |
-| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Veta** — <5 KB gzip, coercion built-in |
-| Type inference through middleware | Good | Partial | None | **Full** — `define()` scopes typed state |
+| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Veta**: <5 KB gzip, coercion built-in |
+| Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
 | Runtime support | Bun, Node, Deno | Bun, Node, Deno, Workers | Node only | Bun, Node (**+uWebSockets.js**), Deno |
-| Built-in middleware | Limited | Via third-party | Via third-party | **16+** — JWT, CORS, sessions, CSRF, rate limiting, secure headers, etc. |
-| File utilities | Limited | None | Via middleware | **Built-in** — sendFile, receiveFiles, listDirectory, MIME detection |
+| Built-in middleware | Limited | Via third-party | Via third-party | **16+**: JWT, CORS, sessions, CSRF, rate limiting, secure headers, etc. |
+| File utilities | Limited | None | Via middleware | **Built-in**: sendFile, receiveFiles, listDirectory, MIME detection |
 | Encrypted cookies | Not built-in | Not built-in | Not built-in | **Built-in** AES-GCM encryption utilities |
-| Binary WebSocket protocol | No | No | No | **Wire Protocol** (`@coderbuzz/velox-ws-wire`) — 80-93% bandwidth reduction over JSON |
+| Binary WebSocket protocol | No | No | No | **Wire Protocol** (`@coderbuzz/velox-ws-wire`): 80-93% bandwidth reduction over JSON |
 
 ---
 
@@ -62,14 +62,14 @@ Validation POST (veta schema):
 
 ## Key Features
 
-- **Runtime Agnostic** — Bun, Deno, Node.js (with optional uWebSockets.js for max perf)
-- **TypeScript Native** — Full type inference through routes, middleware, and schemas
-- **Schema Validation** — Validate params, query, headers, cookies, body with `@coderbuzz/veta` inline schemas
-- **Built-in Middleware** — JWT, JWK/JWKS, CORS, sessions, compression, rate limiting, secure headers, CSRF, ETag, IP restriction, and more
-- **WebSocket** — Real-time connections with pub/sub, ping/pong, binary protocol, typed upgrade data
-- **Performance-Driven** — Minimal overhead, engineered for high throughput
-- **Modular & Extensible** — Sub-apps, scoped middleware via `define()`, global middleware via `apply()`
-- **Ecosystem** — `@coderbuzz/velox-ws-wire*` for binary WebSocket protocol with 80-93% bandwidth reduction, fault-tolerant client, and server-side handler
+- **Runtime Agnostic**: Bun, Deno, Node.js (with optional uWebSockets.js for max perf)
+- **TypeScript Native**: Full type inference through routes, middleware, and schemas
+- **Schema Validation**: Validate params, query, headers, cookies, body with `@coderbuzz/veta` inline schemas
+- **Built-in Middleware**: JWT, JWK/JWKS, CORS, sessions, compression, rate limiting, secure headers, CSRF, ETag, IP restriction, and more
+- **WebSocket**: Real-time connections with pub/sub, ping/pong, binary protocol, typed upgrade data
+- **Performance-Driven**: Minimal overhead, engineered for high throughput
+- **Modular & Extensible**: Sub-apps, scoped middleware via `define()`, global middleware via `apply()`
+- **Ecosystem**: `@coderbuzz/velox-ws-wire*` for binary WebSocket protocol with 80-93% bandwidth reduction, fault-tolerant client, and server-side handler
 
 ---
 
@@ -79,19 +79,19 @@ Velox is the HTTP framework core. Binary WebSocket protocol utilities live in se
 
 | Package | Description | Requires Velox? |
 |---|---|---|
-| `@coderbuzz/velox-ws-wire` | Binary Wire Protocol codec — 80-93% bandwidth reduction over JSON | No |
+| `@coderbuzz/velox-ws-wire` | Binary Wire Protocol codec, 80-93% bandwidth reduction over JSON | No |
 | `@coderbuzz/velox-ws-wire-client` | Fault-tolerant WebSocket client with auto-reconnect, heartbeat, pub/sub, request-response | No |
-| `@coderbuzz/velox-ws-wire-server` | Server-side Wire Protocol handler — mount via `app.use("/ws", wireProtocol({...}))` | Yes |
+| `@coderbuzz/velox-ws-wire-server` | Server-side Wire Protocol handler: mount via `app.use("/ws", wireProtocol({...}))` | Yes |
 
 ```ts
-// Server — mount binary protocol handler
+// Server: mount binary protocol handler
 import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 
 app.use("/ws", wireProtocol({
   message(peer, msg) { peer.send(`echo: ${msg}`); },
 }));
 
-// Client — standalone, not from velox
+// Client: standalone, not from velox
 import { WireClient } from "@coderbuzz/velox-ws-wire-client";
 
 const client = new WireClient("wss://api.example.com/ws", {
@@ -136,7 +136,7 @@ const { hostname, port } = await app.run();
 console.log(`Listening on ${hostname}:${port}`);
 ```
 
-That's it — a full HTTP server in 6 lines.
+That's it: a full HTTP server in 6 lines.
 
 ---
 
@@ -144,7 +144,7 @@ That's it — a full HTTP server in 6 lines.
 
 | Class | Purpose |
 |---|---|
-| `App` | Pure router — no server lifecycle. Used for sub-apps and modular composition. |
+| `App` | Pure router, no server lifecycle. Used for sub-apps and modular composition. |
 | `AppServer` | `App` + `run()` / `stop()`. The entry point for a server process. |
 
 ```ts
@@ -209,7 +209,7 @@ app.options("/items", handler);
 ### Route Introspection
 
 ```ts
-const routes = app.getRoutes(); // RouteInfo[] — { method, path }[]
+const routes = app.getRoutes(); // RouteInfo[]: { method, path }[]
 app.printRoutes();
 // ┌──────────┬────────────────────┐
 // │  Method  │ Path               │
@@ -225,7 +225,7 @@ app.printRoutes();
 ## Schema Validation
 
 Validate request data inline via the schema object. Uses
-[`@coderbuzz/veta`](https://www.npmjs.com/package/@coderbuzz/veta) — faster and
+[`@coderbuzz/veta`](https://www.npmjs.com/package/@coderbuzz/veta), faster and
 lighter than TypeBox with built-in coercion.
 
 ```ts
@@ -363,13 +363,13 @@ app.post("/api/users", {
 | **Object/String/null** | Validated ✅ | Schema's `status` used as default for `toResponse()` ✅ | Skipped |
 | **`instanceof Response`** | Skipped | Validated against `response.status` ✅ | Validated against `response.headers` ✅ |
 
-Body validation runs on the raw handler return value before `toResponse()`. Status and header validation run after `onFinish` callbacks (cookies already applied), on the final `Response` object — ensuring everything is validated before it reaches the client.
+Body validation runs on the raw handler return value before `toResponse()`. Status and header validation run after `onFinish` callbacks (cookies already applied), on the final `Response` object, ensuring everything is validated before it reaches the client.
 
 Throw a `Response` to bypass validation entirely (e.g., early returns from middleware).
 
 ### Type Inference
 
-When `response.body` is specified, the handler's return type is automatically inferred from the validator — no need to annotate:
+When `response.body` is specified, the handler's return type is automatically inferred from the validator: no need to annotate.
 
 ```ts
 app.post("/api/users", {
@@ -387,7 +387,7 @@ app.post("/api/users", {
 });
 ```
 
-Routes without `response.body` keep the return type as `any` — fully backward compatible.
+Routes without `response.body` keep the return type as `any`, fully backward compatible.
 
 > **Note:** TypeScript structural typing allows extra properties in return positions. `return { id: 1, name: "John", extra: true }` will not error even though `extra` isn't in the schema. Use `as const` or `satisfies` for stricter checking.
 
@@ -413,7 +413,7 @@ app.get("/protected", {
 }, (ctx) => Response.json({ user: ctx.state.auth.userId }));
 ```
 
-### `define()` — Scoped Middleware with Full Type Inference
+### `define()`: Scoped Middleware with Full Type Inference
 
 Apply middleware to a group of routes. Routes inside the callback automatically
 inherit the state type:
@@ -447,10 +447,10 @@ app.define({ requestId: () => crypto.randomUUID() }, (app) => {
 });
 ```
 
-### `apply()` — Global Middleware
+### `apply()`: Global Middleware
 
 ```ts
-// Side-effect middleware (logging, metrics) — no state produced
+// Side-effect middleware (logging, metrics), no state produced
 app.apply("/*", (ctx) => { console.log(ctx.method, ctx.url); });
 
 // State-producing middleware
@@ -460,7 +460,7 @@ app.apply("/*", { auth: (ctx) => verifyAuth(ctx) });
 app.apply("/api/*", { apiVersion: () => "v1" });
 ```
 
-### `use()` — Mount Sub-Apps
+### `use()`: Mount Sub-Apps
 
 ```ts
 const api = new App();
@@ -468,7 +468,7 @@ api.get("/users", handler);
 api.get("/posts", handler);
 
 app.use("/api/v1", api);
-app.use(api); // without prefix — routes merged at root
+app.use(api); // without prefix, routes merged at root
 ```
 
 ---
@@ -480,7 +480,7 @@ app.use(api); // without prefix — routes merged at root
 | Middleware | Description | Example usage |
 |---|---|---|
 | `jwt()` | JWT verification with HS256/HS384/HS512, claims validation | `state: { auth: jwt({ secret, issuer, audience }) }` |
-| `jwk()` | JWK/JWKS (RSA, ECDSA) — Auth0, Cognito, custom | `state: { auth: jwk({ jwksUrl, issuer }) }` |
+| `jwk()` | JWK/JWKS (RSA, ECDSA): Auth0, Cognito, custom | `state: { auth: jwk({ jwksUrl, issuer }) }` |
 | `basicAuth()` | HTTP Basic auth with static or custom verification | `state: { auth: basicAuth({ username, password }) }` |
 | `bearerAuth()` | Bearer token auth with single/multiple/verified tokens | `state: { auth: bearerAuth({ token: [...] }) }` |
 | `session()` | Cookie-based session with custom validation | `state: { session: session({ cookieName, validate }) }` |
@@ -490,7 +490,7 @@ app.use(api); // without prefix — routes merged at root
 | Middleware | Description |
 |---|---|
 | `cors()` | CORS with dynamic origin resolver, custom headers, credentials |
-| `csrf()` | CSRF protection — checks `Origin` on every unsafe request |
+| `csrf()` | CSRF protection: checks `Origin` on every unsafe request |
 | `secureHeaders()` | Helmet-inspired security headers (15+ headers) |
 | `ipRestriction()` | Allow/deny list by IP address |
 
@@ -535,20 +535,20 @@ Body limit only applies to POST, PUT, PATCH, and DELETE methods. When
 ```ts
 import { cors } from "@coderbuzz/velox";
 
-// Mount at root (simplest) — handles preflight + headers for all routes
+// Mount at root (simplest): handles preflight + headers for all routes
 const corsApp = cors({ origin: "https://example.com", credentials: true });
 corsApp.get("/data", () => Response.json({ data: 1 }));
 app.use(corsApp); // no prefix needed
 
-// Mount at prefix — scoped to sub-path
+// Mount at prefix: scoped to sub-path
 const apiCors = cors({ origin: "https://example.com", credentials: true });
 apiCors.get("/data", () => Response.json({ data: 1 }));
 app.use("/api", apiCors);
 
-// Array origin — allow specific origins
+// Array origin: allow specific origins
 const arrayCors = cors({ origin: ["https://a.com", "https://b.com"] });
 
-// Function origin — dynamic resolution
+// Function origin: dynamic resolution
 const dynamicCors = cors({
   origin: (requestOrigin, ctx) => {
     const allowed = ["https://app.example.com", "https://admin.example.com"];
@@ -559,7 +559,7 @@ const dynamicCors = cors({
 
 CORS automatically adds `Vary: Origin` to responses.
 
-**`credentials: true` cannot be combined with the wildcard origin** — `cors()`
+**`credentials: true` cannot be combined with the wildcard origin.** `cors()`
 throws where it is written. Browsers reject `Access-Control-Allow-Origin: *` on
 credentialed requests, and reflecting the request origin to satisfy them means
 any site your logged-in users visit can read authenticated responses. Since
@@ -577,7 +577,7 @@ cors({ origin: ["https://app.example.com"], credentials: true }); // correct
 ```ts
 import { jwt, signJwt, verifyJwt } from "@coderbuzz/velox";
 
-// Sign — every token needs an expiry
+// Sign: every token needs an expiry
 app.get("/token", async () => {
   const token = await signJwt(
     { sub: "user123", iss: "my-app", aud: "my-api" },
@@ -608,15 +608,15 @@ allows small clock skew when validating `exp` and `nbf` claims.
 
 **Tokens must expire.** `signJwt()` refuses a payload with no `exp` unless you
 pass `expiresIn`, and `jwt()`/`verifyJwt()` reject a token that carries no `exp`
-claim. A JWT cannot be revoked without rotating the secret — which signs every
-other session out at the same time — so a token that never expires is a
+claim. A JWT cannot be revoked without rotating the secret (which signs every
+other session out at the same time), so a token that never expires is a
 credential you cannot take back. Pass `requireExp: false` only when the
 lifetime is bounded somewhere else.
 
 To inspect a token you are debugging, there is
 `unsafeDecodeJwtWithoutVerification()`. The name is the warning: it checks no
 signature, so anyone can hand you any payload. Never read identity, tenant or
-permissions from its result — use `verifyJwt()` or `ctx.state`.
+permissions from its result: use `verifyJwt()` or `ctx.state`.
 
 ### Session
 
@@ -794,7 +794,7 @@ A declared body schema **runs**, whether or not the handler reads it:
 
 ```ts
 app.post("/jurnal", { json: JournalSchema }, async (ctx) => {
-  // Even a handler that never touches ctx.json gets a validated request —
+  // Even a handler that never touches ctx.json gets a validated request:
   // the schema is awaited before the handler is called.
   return postJournal(await ctx.json);
 });
@@ -819,7 +819,7 @@ and the real cause was never named anywhere.
 
 An unhandled error becomes `{ "status": 500, "message": "Internal Server Error",
 "errorId": "..." }`. **The thrown error's own message is never sent to the
-client** — a driver error carries constraint names, column names and the
+client.** A driver error carries constraint names, column names and the
 conflicting values themselves, which in a multi-tenant system is another
 tenant's data handed to whoever made the request. The real error is logged
 server-side under the same `errorId`, so a user's report points straight at it.
@@ -843,7 +843,7 @@ app.notFound((ctx) => {
   return Response.json({ error: "Not Found", path: ctx.url }, { status: 404 });
 });
 
-// Route-level onError — takes priority
+// Route-level onError, takes priority
 app.get("/validate", {
   onError: (error, ctx) => Response.json({ custom: true, message: String(error) }, { status: 422 }),
 }, () => { throw new Error("validation failed"); });
@@ -855,7 +855,7 @@ app.get("/secret", () => { throw new Response("Forbidden", { status: 403 }); });
 ### HttpError
 
 `HttpError` carries the status it should be answered with, and unlike an
-arbitrary error its message **is** sent to the client — you wrote it, so it is
+arbitrary error its message **is** sent to the client: you wrote it, so it is
 an answer, not a leak.
 
 ```ts
@@ -871,7 +871,7 @@ throw new HttpError(409, "Reference already used", { ref: "INV-001" });
 // → 409 { "status": 409, "message": "Reference already used", "ref": "INV-001" }
 ```
 
-A 5xx `HttpError` is answered as written and also logged — at that point
+A 5xx `HttpError` is answered as written and also logged: at that point
 something is wrong on your side, and the log is the only record of it.
 
 **Validation → 400.** Velox has no runtime dependency on a validation library,
@@ -1002,13 +1002,13 @@ const key = await deriveKeyFromPassphrase(process.env.SESSION_PASSPHRASE!, salt)
 ```
 
 `SESSION_SECRET="erp-rahasia-2026"` used as a key directly was a single SHA-256
-away from being guessed — minutes of GPU work from one captured cookie, and
+away from being guessed, minutes of GPU work from one captured cookie, and
 whoever guesses it can mint a valid session for any user in any tenant. PBKDF2
 at 600,000 iterations (the default) makes each guess expensive. Derive once at
 startup, not per request.
 
 To read data encrypted before this changed, pass
-`decryptString(value, oldSecret, { legacyKeyDerivation: true })` — long enough
+`decryptString(value, oldSecret, { legacyKeyDerivation: true })`, long enough
 to re-encrypt it. There is no matching option on `encryptString`.
 
 ### Compression
@@ -1031,7 +1031,7 @@ const fetchUser = memoize(
 );
 
 // A function that returns a Promise without being written `async` is not
-// detected — pass `async: true` to get in-flight deduplication for it.
+// detected: pass `async: true` to get in-flight deduplication for it.
 const fetchOrg = memoize((id: string) => db.orgs.findById(id), { async: true });
 ```
 
@@ -1048,7 +1048,7 @@ app.post("/transfer", {
 `Origin` is validated on every unsafe request (POST, PUT, PATCH, DELETE),
 **whatever the content type**. An earlier version skipped the check for JSON, on
 the premise that a browser cannot send a cross-origin JSON POST without a CORS
-preflight. That premise holds only while CORS is configured correctly — and an
+preflight. That premise holds only while CORS is configured correctly. An
 over-permissive CORS setup silently left every JSON endpoint unprotected, with
 both lines looking like good practice.
 
@@ -1066,7 +1066,7 @@ the error is reported rather than swallowed:
 import { onWsHandlerError } from "@coderbuzz/velox";
 
 onWsHandlerError((error, source) => metrics.increment("ws.handler_error", { source }));
-onWsHandlerError(null); // silence them — a decision, not an accident
+onWsHandlerError(null); // silence them: a decision, not an accident
 ```
 
 The default writes to `console.error`. Without it, a handler that threw on one
@@ -1087,7 +1087,7 @@ Then any code running during a request can reach it, without every caller in
 between passing it down:
 
 ```ts
-// repository.ts — no ctx parameter anywhere
+// repository.ts: no ctx parameter anywhere
 import { getRequestContext } from "@coderbuzz/velox";
 
 export function currentTenant(): string {
@@ -1097,7 +1097,7 @@ export function currentTenant(): string {
 
 A `tenantId` threaded by hand through five layers is a `string` among strings.
 When the sixth endpoint forgets to pass it, nothing fails to compile and nothing
-fails at runtime — the query simply runs against the wrong tenant. That is not a
+fails at runtime, the query simply runs against the wrong tenant. That is not a
 problem discipline solves in a codebase mostly written by agents; it needs a
 mechanism.
 
@@ -1116,7 +1116,7 @@ where absence is genuinely fine.
 
 It is built on `AsyncLocalStorage`, so it survives `await` and keeps concurrent
 requests apart. It does **not** reach code that escaped the request's async
-scope — a callback stored in a module-level array and invoked later, a
+scope: a callback stored in a module-level array and invoked later, a
 `setInterval`, a queue worker. Pass the value explicitly there.
 
 **Why opt-in:** `AsyncLocalStorage` has a real per-request cost, and velox is
