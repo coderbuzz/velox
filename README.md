@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@200be78 -->
+<!-- docs: sync from coderbuzz/codex@b37bd48 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation via `@coderbuzz/veta`, built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -22,11 +22,11 @@ Velox reaches **269K req/s** for simple GET and **119K req/s** for validation PO
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
 | Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun |
-| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Veta**: <5 KB gzip, coercion built-in |
+| Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
 | Runtime support | Bun, Node, Deno | Bun, Node, Deno, Workers | Node only | Bun, Node (**+uWebSockets.js**), Deno |
-| Built-in middleware | Limited | Via third-party | Via third-party | **16+**: JWT, CORS, sessions, CSRF, rate limiting, secure headers, etc. |
+| Built-in middleware | Limited | Via third-party | Via third-party | **16+**: JWT, CORS, sessions, CSRF, secure headers, etc. |
 | File utilities | Limited | None | Via middleware | **Built-in**: sendFile, receiveFiles, listDirectory, MIME detection |
 | Encrypted cookies | Not built-in | Not built-in | Not built-in | **Built-in** AES-GCM encryption utilities |
 | Binary WebSocket protocol | No | No | No | **Wire Protocol** (`@coderbuzz/velox-ws-wire`): 80-93% bandwidth reduction over JSON |
@@ -64,8 +64,8 @@ Validation POST (veta schema):
 
 - **Runtime Agnostic**: Bun, Deno, Node.js (with optional uWebSockets.js for max perf)
 - **TypeScript Native**: Full type inference through routes, middleware, and schemas
-- **Schema Validation**: Validate params, query, headers, cookies, body with `@coderbuzz/veta` inline schemas
-- **Built-in Middleware**: JWT, JWK/JWKS, CORS, sessions, compression, rate limiting, secure headers, CSRF, ETag, IP restriction, and more
+- **Schema Validation**: Validate params, query, headers, cookies, body with inline validator functions (e.g. from `@coderbuzz/veta`)
+- **Built-in Middleware**: JWT, JWK/JWKS, CORS, sessions, compression, secure headers, CSRF, ETag, IP restriction, and more
 - **WebSocket**: Real-time connections with pub/sub, ping/pong, binary protocol, typed upgrade data
 - **Performance-Driven**: Minimal overhead, engineered for high throughput
 - **Modular & Extensible**: Sub-apps, scoped middleware via `define()`, global middleware via `apply()`
@@ -116,6 +116,9 @@ npm install @coderbuzz/velox
 # Deno
 import { AppServer } from "npm:@coderbuzz/velox";
 ```
+
+Velox has no runtime dependencies. The schema examples below use `@coderbuzz/veta`,
+which is a separate install (`bun add @coderbuzz/veta`); any validator function works.
 
 > **Node.js**: The package ships as ESM. Your project must have
 > `"type": "module"` in `package.json`, or use the `.mjs` extension. Node.js 18+
@@ -224,9 +227,10 @@ app.printRoutes();
 
 ## Schema Validation
 
-Validate request data inline via the schema object. Uses
-[`@coderbuzz/veta`](https://www.npmjs.com/package/@coderbuzz/veta), faster and
-lighter than TypeBox with built-in coercion.
+Validate request data inline via the schema object. A validator is any function
+`(value, ctx?) => T` that returns the parsed value or throws. The examples use
+[`@coderbuzz/veta`](https://www.npmjs.com/package/@coderbuzz/veta) (installed
+separately; velox does not depend on it), which has built-in coercion.
 
 ```ts
 import {
@@ -491,7 +495,7 @@ app.use(api); // without prefix, routes merged at root
 |---|---|
 | `cors()` | CORS with dynamic origin resolver, custom headers, credentials |
 | `csrf()` | CSRF protection: checks `Origin` on every unsafe request |
-| `secureHeaders()` | Helmet-inspired security headers (15+ headers) |
+| `secureHeaders()` | Helmet-inspired security headers (13 headers) |
 | `ipRestriction()` | Allow/deny list by IP address |
 
 ### Performance & Observability
@@ -500,9 +504,9 @@ app.use(api); // without prefix, routes merged at root
 |---|---|
 | `compress()` | Content-encoding negotiation (gzip, deflate, br) |
 | `cache()` | Cache-Control headers (CDN-friendly) |
-| `etag()` | ETag generation and If-None-Match handling |
+| `etag()` | Puts the `If-None-Match` request header in state (you set `ETag` and answer 304) |
 | `timing()` | Server-Timing header |
-| `timeout()` | Request timeout with AbortSignal |
+| `timeout()` | AbortSignal in state that aborts after `duration` ms (does not end the response) |
 
 ### Request Handling
 
@@ -741,11 +745,12 @@ import { WsTopicHub } from "@coderbuzz/velox";
 const hub = new WsTopicHub();
 
 app.ws("/notifications", {
-  open(peer) { hub.subscribe(peer, "alerts"); },
-  close(peer) { hub.unsubscribeAll(peer); },
+  open(peer) { hub.subscribe(peer, "alerts", (peer, msg) => { /* per-topic handler */ }); },
+  message(peer, msg) { hub.dispatch(peer, msg); }, // routes to the peer's topic handlers
+  close(peer) { hub.leave(peer); }, // remove from all topics
 });
 
-// Broadcast from any route
+// Broadcast from any route (includes every subscriber)
 app.post("/broadcast", async (ctx) => {
   const { message } = await ctx.json;
   hub.publish("alerts", message);
@@ -883,7 +888,7 @@ import { safeParse } from "@coderbuzz/veta";
 import { HttpError } from "@coderbuzz/velox";
 
 app.post("/jurnal", async (ctx) => {
-  const parsed = safeParse(journalSchema, await ctx.json());
+  const parsed = safeParse(journalSchema, await ctx.json);
   if (!parsed.ok) {
     throw new HttpError(400, "Validation failed", { issues: parsed.issues });
   }
@@ -938,7 +943,7 @@ app.get("/stream", () => {
 import { sendFile } from "@coderbuzz/velox";
 
 app.get("/download/:name", (ctx) =>
-  sendFile(ctx, `./uploads/${ctx.params.name}`, {
+  sendFile(`./uploads/${ctx.params.name}`, {
     download: true,
     cacheControl: "public, max-age=3600",
     reqHeaders: ctx.headers, // enables ETag/Range/If-Modified-Since
@@ -955,13 +960,14 @@ Last-Modified. On Bun, uses `Bun.file()` for zero-copy sendfile.
 import { receiveFiles, saveFile } from "@coderbuzz/velox";
 
 app.post("/upload", async (ctx) => {
-  const files = await receiveFiles(ctx, {
+  const files = await receiveFiles(await ctx.form, {
     maxFileSize: 5_000_000,
     maxFiles: 10,
     allowedTypes: ["image/png", "image/jpeg"],
   });
   for (const file of files) {
-    await saveFile(file, "./uploads");
+    // file.fileName comes from the client: do not use it as a path
+    await saveFile(`./uploads/${crypto.randomUUID()}`, file.data);
   }
   return Response.json({ count: files.length });
 });
@@ -972,8 +978,8 @@ app.post("/upload", async (ctx) => {
 ```ts
 import { listDirectory } from "@coderbuzz/velox";
 
-app.get("/files", async (ctx) =>
-  listDirectory(ctx, "./uploads", { recursive: true, stats: true })
+app.get("/files", async () =>
+  listDirectory("./uploads", { recursive: true, stats: true }) // FileEntry[] → JSON
 );
 ```
 

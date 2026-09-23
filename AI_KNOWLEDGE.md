@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@200be78 -->
+<!-- docs: sync from coderbuzz/codex@b37bd48 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -83,6 +83,8 @@ The schema object is the second argument before the handler. It has these keys:
 | `response`| `ResponseSchema`                    | validated after finish callbacks         |
 
 ### 3.1 Validators from `@coderbuzz/veta`
+
+`@coderbuzz/veta` is not a dependency of velox (`dependencies: {}`; veta is only a devDependency). Install it separately, or use any `(val, ctx?) => T` function.
 
 ```ts
 import {
@@ -316,7 +318,7 @@ ctx.onFinish(cb) // register callback called after response is sent
 
 ### 5.1 How Middleware Works
 
-Middleware in Ken are just functions inside the `state` key of a schema. They
+Middleware in Velox are just functions inside the `state` key of a schema. They
 run before the handler in insertion order. If a middleware returns a `Response`,
 the chain stops and that response is sent.
 
@@ -518,7 +520,7 @@ so it cannot recognise a `VetaError` by itself: see 2H in the audit. The
 mapping is one line in the application, which is where it can be reviewed:
 
 ```ts
-const parsed = safeParse(schema, await ctx.json());
+const parsed = safeParse(schema, await ctx.json);
 if (!parsed.ok) throw new HttpError(400, 'Validation failed', { issues: parsed.issues });
 ```
 
@@ -674,9 +676,9 @@ These return functions that produce typed state values:
 | `bearerAuth(options)`     | fn/async fn | `{ token: string }` or `Response`                   |
 | `requestId(options?)`     | fn          | `string`                                            |
 | `compress(options?)`      | fn          | `{ encoding: 'br' \| 'gzip' \| 'deflate' \| null }` |
-| `etag(options?)`          | fn          | `string \| null` (If-None-Match value)              |
+| `etag()`                  | fn          | `string \| null` (If-None-Match value, no ETag generated) |
 | `timeout(options)`        | fn          | `{ signal: AbortSignal }` or `Response`             |
-| `secureHeaders(options?)` | fn          | `void` (sets headers via onFinish)                  |
+| `secureHeaders(options?)` | fn          | `void` (sets 13 headers via onFinish)               |
 | `cache(options?)`         | fn          | `void` (sets Cache-Control via onFinish)            |
 | `bodyLimit(options)`      | fn          | `void` or `Response`                                |
 | `timing(options?)`        | fn          | `void` (sets Server-Timing via onFinish)            |
@@ -879,19 +881,23 @@ bearerAuth({
 ```ts
 compress({
   preferred?: CompressionEncoding[],  // default: ['br', 'gzip', 'deflate']
+  threshold?: number,                 // declared (JSDoc default 1024) but never read
 })
 ```
+- Only negotiates: returns `{ encoding }` in state and sets `Vary`. It does not compress the body; the runtime or a proxy does.
+- The middleware's `CompressOptions` type is not importable from `@coderbuzz/velox`: the root export of that name is the `compressString` options type (12.2).
 - `Accept-Encoding: *` (wildcard) returns the first preferred encoding.
 - Adds `Vary: Accept-Encoding` to responses via `onFinish`.
 
 ```ts
 timeout({
   duration: number,          // milliseconds, must be > 0
-  onTimeout?: (ctx) => Response,  // NOTE: stored in ctx.state, not directly delivered
+  onTimeout?: (ctx) => Response,  // NOTE: accepted but never called
 })
 ```
 - `duration <= 0` throws `Error` at middleware creation time.
-- The AbortSignal is available at `ctx.state.timeoutSig.signal`.
+- The AbortSignal is available at `ctx.state.<key>.signal` (e.g. `ctx.state.timeoutSig.signal` for `state: { timeoutSig: timeout(...) }`).
+- It does not end or replace the response: only code that listens to the signal is cancelled.
 - Pass the signal to `fetch(url, { signal })` for network request cancellation.
 
 ### 8.10 CSRF Rules
@@ -1007,18 +1013,25 @@ Use **`WsTopicHub`** for:
 
 - Cross-route publish (HTTP → WebSocket, background job → WebSocket)
 - Dead peer detection (`hub.markAlive(peer)`)
-- Explicit unsubscribe-all on close (`hub.unsubscribeAll(peer)`)
+- Explicit remove-from-all-topics on close (`hub.leave(peer)`)
 
 ```ts
 import { WsTopicHub } from "@coderbuzz/velox";
 
-const hub = new WsTopicHub();
-// hub.subscribe(peer, topic)
-// hub.unsubscribe(peer, topic)
-// hub.unsubscribeAll(peer)
-// hub.publish(topic, data)
-// hub.markAlive(peer)
+const hub = new WsTopicHub<T>();
+hub.subscribe(peer, topic, (peer, msg) => {}) // handler required; same topic replaces it
+hub.unsubscribe(peer, topic)
+hub.leave(peer)                               // all topics + liveness state; call from close()
+hub.dispatch(peer, msg)                       // call from message(): runs the peer's topic handlers
+hub.publish(topic, data, compress?)           // send to ALL subscribers, including the sender
+hub.markAlive(peer)                           // call from pong()
+hub.isPeerAlive(peer, timeoutMs)
+hub.pruneDeadPeers(timeoutMs)                 // close(1001, 'ping timeout') + leave
+hub.startDeadPeerCheck(checkIntervalMs, timeoutMs) / hub.stopDeadPeerCheck()
+hub.subscriberCount(topic); hub.isSubscribed(peer, topic); hub.topicNames()
 ```
+
+`TopicCallback<T>` is `(peer, msg) => void`. A throwing handler in `dispatch()` is reported through `onWsHandlerError` with source `'topic dispatch'`.
 
 ### 9.5 WsOptions Defaults
 
@@ -1042,11 +1055,11 @@ The binary Wire Protocol (formerly KBWP) was extracted from velox into separate 
 
 | Package | What it provides | Velox dependency? |
 |---|---|---|
-| `@coderbuzz/velox-ws-wire` | `encode()`, `decode()`, `encodedSize()`: pure binary framing codec | No |
+| `@coderbuzz/velox-ws-wire` | `encodePing()` ... `encodeAuthFail()`, `decode()`, `isWireBinaryFrame()`, `MsgType`: pure binary framing codec | No |
 | `@coderbuzz/velox-ws-wire-client` | `WireClient`: fault-tolerant WebSocket client with binary protocol | No |
 | `@coderbuzz/velox-ws-wire-server` | `wireProtocol()`: server-side handler, mount via `app.use()` | Yes |
 
-**Warning:** `WSClient`, `wsClientProtocol`, `WsClientState`, `WsDefinition`, `WsClientOptions` were removed from velox in v0.5.0. Import from the new packages instead:
+**Warning:** `WSClient`, `wsClientProtocol`, `WsClientState`, `WsDefinition`, `WsClientOptions` were removed from velox in v0.3.7. Import from the new packages instead:
 
 ```ts
 // old: no longer in @coderbuzz/velox
@@ -1064,7 +1077,8 @@ import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 ### 11.1 sendFile
 
 ```ts
-sendFile(ctx, filePath, options?): Response | Promise<Response>
+sendFile(filePath: string, options?: SendFileOptions): Promise<Response>
+// 404 Response (no throw) when the file does not exist
 ```
 
 Options:
@@ -1085,7 +1099,8 @@ Options:
 ### 11.2 listDirectory
 
 ```ts
-listDirectory(ctx, dirPath, options?): Response | Promise<Response>
+listDirectory(dirPath: string, options?: ListDirectoryOptions): Promise<FileEntry[]>
+// return it from a handler to get a JSON array
 ```
 
 Options:
@@ -1104,7 +1119,10 @@ FileEntry: `{ name, path, isDirectory, size, modifiedAt }`.
 ### 11.3 receiveFiles
 
 ```ts
-const files: UploadedFile[] = await receiveFiles(ctx, options?);
+const files: UploadedFile[] = await receiveFiles(await ctx.form, options?);
+// receiveFiles(formData: FormData, options?: ReceiveFileOptions): Promise<UploadedFile[]>
+// Throws Error when a file exceeds maxFileSize or has a type outside allowedTypes;
+// files past maxFiles are silently ignored. String fields are skipped.
 ```
 
 Options:
@@ -1123,8 +1141,11 @@ UploadedFile: `{ fieldName, fileName, type, size, data: ArrayBuffer }`.
 ### 11.4 saveFile
 
 ```ts
-await saveFile(file: UploadedFile, directory: string): Promise<void>
+saveFile(filePath: string, data: Blob | ArrayBuffer | Uint8Array | string): Promise<void>
+await saveFile(`./uploads/${crypto.randomUUID()}`, file.data); // creates parent dirs on ENOENT
 ```
+
+`file.fileName` is client-supplied: never build a path from it without sanitising.
 
 ### 11.5 getMimeType
 
@@ -1422,13 +1443,13 @@ app.use(protectedApi);
 app.post("/upload", {
   state: { limit: bodyLimit({ maxSize: 10_000_000 }) }, // 10 MB guard
 }, async (ctx) => {
-  const files = await receiveFiles(ctx, {
+  const files = await receiveFiles(await ctx.form, {
     maxFileSize: 5_000_000,
     allowedTypes: ["image/png", "image/jpeg", "image/webp"],
     maxFiles: 5,
   });
   for (const file of files) {
-    await saveFile(file, "./uploads");
+    await saveFile(`./uploads/${crypto.randomUUID()}`, file.data);
   }
   return Response.json({ uploaded: files.map((f) => f.fileName) });
 });
@@ -1565,20 +1586,36 @@ app.get("/events", () => {
 
 ```ts
 // Core
-import { App, AppServer } from "@coderbuzz/velox";
+import { App, AppServer, HttpError, defaultErrorHandler } from "@coderbuzz/velox";
 import type {
   AppServerInit,
   Context,
   ErrorHandler,
-  InferState,
+  Flatten,
+  InferObject,
   InferResponse,
+  InferState,
+  InferValidator,
   MiddlewareHandler,
+  ParamsFromPath,
   RemoteInfo,
   ResponseSchema,
+  RouteInfo,
   Schema,
+  Server,
+  ServerOptions,
   StateMiddleware,
   TypedHandler,
   Validator,
+} from "@coderbuzz/velox";
+
+// Ambient request context
+import {
+  disableRequestContext,
+  enableRequestContext,
+  getRequestContext,
+  isRequestContextEnabled,
+  tryGetRequestContext,
 } from "@coderbuzz/velox";
 
 // Middleware
@@ -1606,16 +1643,19 @@ import {
 } from "@coderbuzz/velox";
 
 // WebSocket (Wire Protocol lives in separate packages)
-import { WsTopicHub } from "@coderbuzz/velox";
+import { WsReadyState, WsTopicHub, onWsHandlerError } from "@coderbuzz/velox";
 import type {
+  TopicCallback,
   WsHandler,
+  WsHandlerErrorHandler,
   WsMessageData,
   WsOptions,
   WsPeer,
+  WsReadyStateValue,
 } from "@coderbuzz/velox";
 
 // Wire Protocol: separate packages (not in velox)
-// import { encode, decode } from "@coderbuzz/velox-ws-wire";
+// import { encodeRequest, decode } from "@coderbuzz/velox-ws-wire";
 // import { WireClient } from "@coderbuzz/velox-ws-wire-client";
 // import { wireProtocol } from "@coderbuzz/velox-ws-wire-server";
 
@@ -1624,7 +1664,9 @@ import {
   compressString,
   decompressString,
   decryptString,
+  deriveKeyFromPassphrase,
   encryptString,
+  generateSalt,
   generateSecretKey,
   getMimeType,
   getPathname,
@@ -1633,13 +1675,27 @@ import {
   isNode,
   listDirectory,
   memoize,
-  onWsHandlerError,
   receiveFiles,
   saveFile,
   sendFile,
 } from "@coderbuzz/velox";
+import type {
+  CompressOptions,      // compressString options (not the compress() middleware's)
+  DecompressOptions,
+  FileEntry,
+  ListDirectoryOptions,
+  MemoizeOptions,
+  ReceiveFileOptions,
+  SendFileOptions,
+  UploadedFile,
+} from "@coderbuzz/velox";
+// Middleware option types: BasicAuthOptions, BearerAuthOptions, BodyLimitOptions,
+// CacheOptions, CompressionEncoding, CorsOptions, CsrfOptions, IpRestrictionOptions,
+// JWKOptions, JWK, JWKS, JWTOptions, SignJwtOptions, JWTPayload, JWTAlgorithm,
+// LoggerOptions, RequestIdOptions, SecureHeadersOptions, SessionOptions,
+// TimeoutOptions, TimingOptions
 
-// Validation schemas (separate package)
+// Validation schemas (separate package, not a velox dependency)
 import {
   array,
   boolean,
@@ -1656,7 +1712,7 @@ import {
 
 ## 18. Response Helpers
 
-Ken uses the standard Web API `Response` class throughout:
+Velox uses the standard Web API `Response` class throughout:
 
 ```ts
 // Text
@@ -1728,7 +1784,8 @@ process.on("SIGINT", async () => {
 | Field                     | Value                                |
 | ------------------------- | ------------------------------------ |
 | Package                   | `@coderbuzz/velox`                     |
-| Validation library        | `@coderbuzz/veta`                     |
+| Runtime dependencies      | None (`dependencies: {}`)            |
+| Validation library        | Any `(val, ctx?) => T` function; examples use `@coderbuzz/veta` (install separately) |
 | License                   | MIT                                  |
 | Runtimes                  | Node.js, Bun, Deno                   |
 | Node.js high-perf adapter | `uWebSockets.js` (optional, `UWS=1`) |
