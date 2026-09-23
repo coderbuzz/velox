@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@b37bd48 -->
+<!-- docs: sync from coderbuzz/codex@a6d69d0 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -25,7 +25,7 @@ Velox reaches **269K req/s** for simple GET and **119K req/s** for validation PO
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
-| Runtime support | Bun, Node, Deno | Bun, Node, Deno, Workers | Node only | Bun, Node (**+uWebSockets.js**), Deno |
+| Runtime support | Bun, Node, Deno | Bun, Node, Deno, Workers | Node only | Bun, Node (**+uWebSockets.js**), Deno, Cloudflare Workers |
 | Built-in middleware | Limited | Via third-party | Via third-party | **16+**: JWT, CORS, sessions, CSRF, secure headers, etc. |
 | File utilities | Limited | None | Via middleware | **Built-in**: sendFile, receiveFiles, listDirectory, MIME detection |
 | Encrypted cookies | Not built-in | Not built-in | Not built-in | **Built-in** AES-GCM encryption utilities |
@@ -62,7 +62,7 @@ Validation POST (veta schema):
 
 ## Key Features
 
-- **Runtime Agnostic**: Bun, Deno, Node.js (with optional uWebSockets.js for max perf)
+- **Runtime Agnostic**: Bun, Deno, Node.js (with optional uWebSockets.js for max perf), Cloudflare Workers
 - **TypeScript Native**: Full type inference through routes, middleware, and schemas
 - **Schema Validation**: Validate params, query, headers, cookies, body with inline validator functions (e.g. from `@coderbuzz/veta`)
 - **Built-in Middleware**: JWT, JWK/JWKS, CORS, sessions, compression, secure headers, CSRF, ETag, IP restriction, and more
@@ -161,6 +161,74 @@ app.use("/api/v1", api);
 
 await app.run();
 ```
+
+---
+
+## Cloudflare Workers
+
+A Worker does not listen on a port, so instead of `AppServer.run()` you export
+the app. The same routes, schemas and middleware run unchanged.
+
+```ts
+// src/index.ts
+import { App, cloudflare, getEnv, getExecutionContext } from "@coderbuzz/velox";
+
+interface Env {
+  KV: KVNamespace;
+  API_KEY: string;
+}
+
+const app = new App();
+
+app.get("/", "Hello from the edge");
+
+app.get("/kv/:key", (ctx) => getEnv<Env>(ctx).KV.get(ctx.params.key));
+
+app.post("/events", async (ctx) => {
+  const event = await ctx.json;
+  getExecutionContext(ctx).waitUntil(fetch("https://collector.example", {
+    method: "POST",
+    body: JSON.stringify(event),
+  }));
+  return { queued: true };
+});
+
+export default cloudflare(app);
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-15",
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+
+**`nodejs_compat` is required.** Velox imports `node:async_hooks`, `node:fs`
+and `node:path`. With wrangler, any `compatibility_date` from `2024-09-23` works.
+If you bundle without wrangler, use `2025-09-15` or later, the first date on
+which workerd itself provides `node:fs`.
+
+`getEnv<Env>(ctx)` returns the Worker's bindings and `getExecutionContext(ctx)`
+returns its `ExecutionContext`. `Context` has the same type on every runtime,
+so a handler compiles the same for Bun and for Workers. On any other runtime
+both helpers throw.
+
+To add `scheduled`, `queue` or other handlers, spread the result:
+`export default { ...cloudflare(app), scheduled(...) { ... } }`. It satisfies
+`ExportedHandler<Env>` from `@cloudflare/workers-types`.
+
+What differs on Workers:
+
+| Feature | On Workers |
+|---|---|
+| `app.ws()` routes | Not served: an upgrade on that path answers `501`. Use a Durable Object. |
+| `sendFile`, `listDirectory`, `saveFile` | Import fine, but a Worker has no project filesystem to serve from. |
+| `AppServer.run()` | Throws, naming `export default cloudflare(app)`. |
+| `ctx.remoteInfo` | Address from `cf-connecting-ip`; port is always `0`. |
+| Ambient request context | Works (`nodejs_compat` provides `AsyncLocalStorage`). |
 
 ---
 
@@ -1131,9 +1199,12 @@ built for throughput. With it off, the cost is one boolean test per request.
 ### Runtime Detection
 
 ```ts
-import { isBun, isDeno, isNode } from "@coderbuzz/velox";
+import { isBun, isDeno, isNode, isWorkers } from "@coderbuzz/velox";
 if (isBun) console.log("Running on Bun");
 ```
+
+`isWorkers` is true on Cloudflare Workers. There `isNode` is false, even though
+`nodejs_compat` gives a Worker a `process.versions.node`.
 
 ---
 

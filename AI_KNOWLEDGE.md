@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@b37bd48 -->
+<!-- docs: sync from coderbuzz/codex@a6d69d0 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -23,6 +23,8 @@ AppServer  ─ extends ─► App  ─ extends ─► Router
 - **`App`**: adds middleware pipeline, `define()`, `apply()`, `use()`, error
   handling.
 - **`AppServer`**: adds `run()` / `stop()`, auto-detects runtime.
+- **`cloudflare(app)`**: the Cloudflare Workers entry. A Worker cannot listen, so
+  instead of `run()` it returns `{ fetch }` for `export default`. See §13b.
 
 ---
 
@@ -1317,8 +1319,20 @@ getPathname("https://example.com/api?q=1"); // '/api'
 ## 13. Runtime Detection & Server Startup
 
 ```ts
-import { isBun, isDeno, isNode } from "@coderbuzz/velox";
+import { isBun, isDeno, isNode, isWorkers } from "@coderbuzz/velox";
 ```
+
+All four are `const boolean`, evaluated once when the module loads:
+
+| Flag | True when | Notes |
+|---|---|---|
+| `isDeno` | `Deno.version` exists | |
+| `isBun` | `Bun.version` exists | |
+| `isWorkers` | `navigator.userAgent === 'Cloudflare-Workers'` | |
+| `isNode` | `process.versions.node` exists **and** not Bun **and** not Workers | Workers with `nodejs_compat` report `process.versions.node` (e.g. `22.19.0`). Before `isWorkers` existed, `isNode` was `true` there |
+
+`server()` / `AppServer.run()` pick an adapter in the order Deno → Bun →
+Workers (throws, see §13b) → Node.
 
 ```ts
 // Start server
@@ -1342,6 +1356,151 @@ process.on("SIGINT", async () => {
 
 - `UWS=1` → uses `uWebSockets.js` (must be installed)
 - Default → uses `node:http`
+
+Velox imports `uWebSockets.js` through a variable (`import(UWS_MODULE)`), not a
+string literal, so bundlers do not follow it. With a literal, esbuild (and so
+wrangler) tried to bundle the addon's `.node` binaries whenever
+`uWebSockets.js` was installed. The build failed with `No loader is configured
+for ".node" files`, which broke a Worker in any repo that also runs velox on
+Node.
+
+---
+
+## 13b. Cloudflare Workers
+
+### 13b.1 Minimal Worker
+
+```ts
+// src/index.ts
+import { App, cloudflare, getEnv, getExecutionContext } from "@coderbuzz/velox";
+
+interface Env {
+  KV: KVNamespace;        // types from @cloudflare/workers-types
+  API_KEY: string;
+}
+
+const app = new App();       // App, not AppServer (AppServer also works; its run() throws)
+
+app.get("/", "Hello from the edge");
+app.get("/kv/:key", (ctx) => getEnv<Env>(ctx).KV.get(ctx.params.key));   // null → 204
+app.post("/events", async (ctx) => {
+  getExecutionContext(ctx).waitUntil(logSomewhere(await ctx.json));
+  return { queued: true };
+});
+
+export default cloudflare(app);
+```
+
+```jsonc
+// wrangler.jsonc
+{
+  "name": "my-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-15",
+  "compatibility_flags": ["nodejs_compat"]
+}
+```
+
+### 13b.2 Signatures
+
+```ts
+function cloudflare(router: Router): WorkerHandler;
+
+interface WorkerHandler {
+  fetch(request: Request, env: unknown, ctx: WorkerExecutionContext): Response | Promise<Response>;
+}
+
+interface WorkerExecutionContext {
+  waitUntil(promise: Promise<unknown>): void;
+  passThroughOnException(): void;
+}
+
+function getEnv<Env = Record<string, unknown>>(ctx: Context): Env;       // throws off Workers
+function getExecutionContext(ctx: Context): WorkerExecutionContext;     // throws off Workers
+
+const isWorkers: boolean;
+class WorkerContext extends WebContext { readonly env: unknown; readonly executionCtx: WorkerExecutionContext }
+```
+
+- `WorkerExecutionContext` is velox's own minimal interface, so velox has no
+  dependency on `@cloudflare/workers-types`. The real `ExecutionContext`
+  satisfies it.
+- `cloudflare(app) satisfies ExportedHandler<Env>` type-checks against
+  `@cloudflare/workers-types`, including with `skipLibCheck: false`.
+- `fetch` does not use `this`, so spreading works:
+  `export default { ...cloudflare(app), scheduled(controller, env, ctx) { ... } } satisfies ExportedHandler<Env>`.
+- `getEnv`'s type parameter is unchecked: velox cannot know which bindings the
+  Worker was deployed with. Declare `Env` to match `wrangler.jsonc`.
+- `getEnv` / `getExecutionContext` check `ctx instanceof WorkerContext`. On
+  Bun/Node/Deno they throw `getEnv(): this request is not being served by the
+  Cloudflare Workers adapter ... export default cloudflare(app)`. For code that
+  runs on several runtimes, branch on `isWorkers` first.
+- Handlers still receive the ordinary `Context`, typed the same as on every
+  runtime. `env` was deliberately not added to `Context`, where it would exist
+  (and mean nothing) on Bun, Node and Deno.
+- `env` and the execution context reach state middleware, `onError`,
+  `notFound` handlers and `define()` scopes, anywhere a `ctx` exists.
+
+### 13b.3 Compatibility requirements (measured on workerd)
+
+| Setup | Works? |
+|---|---|
+| wrangler + `nodejs_compat` + date ≥ `2024-09-23` | Yes |
+| wrangler + `nodejs_compat` + date `2024-09-22` or earlier | No: `Could not resolve "async_hooks"` / `"fs/promises"` at bundle time |
+| wrangler without `nodejs_compat` | No: `Could not resolve "async_hooks"` / `"fs"` at bundle time |
+| own bundler, raw workerd, `nodejs_compat`, date ≥ `2025-09-15` | Yes |
+| own bundler, raw workerd, `nodejs_compat`, date `2025-09-01` | No: `No such module "node:fs"` (or add flag `enable_nodejs_fs_module`) |
+
+Why: velox's entry point statically imports `node:async_hooks` (ambient request
+context), `node:fs`, `node:fs/promises` and `node:path` (file utilities). Wrangler
+polyfills `node:fs` through unenv on older dates. Workerd provides it natively
+only from `2025-09-15`.
+
+### 13b.4 Internal behavior
+
+- **Lazy compile.** Nothing is compiled inside `cloudflare()`. The first
+  `fetch` compiles every route, and later requests reuse that compiled table.
+  Two reasons: workerd rejects `new Response('body')` at module scope
+  (`Disallowed operation called within global scope`), and compiling late
+  means routes registered after `cloudflare(app)` but before the first request
+  are still served. Routes added after the first request are **not** served.
+- **Static routes build a fresh Response per request.** Bun/Deno/Node cache one
+  Response for `app.get(path, value)` and `clone()` it. On workerd, a body
+  created while handling one request cannot be read by another (`Cannot perform
+  I/O on behalf of a different request`), so the second request got a 500. The
+  Workers adapter calls `toResponse(value)` per request instead. It serializes
+  JSON each time, which costs little and is required.
+- **Remote info.** `ctx.remoteInfo.address` comes from `cf-connecting-ip`
+  (always set by Cloudflare, read first by `BaseContext`). The runtime fallback
+  is `{ address: '', port: 0 }`, so the port is always `0`.
+- **WebSocket routes.** `app.ws(path)` is not served. A request to that exact
+  path with `upgrade: websocket` gets `501 WebSocket routes are not supported
+  on Cloudflare Workers`. Non-upgrade requests to the same path route normally.
+  At first compile, one `console.warn` names how many ws routes are
+  unserved. On Workers, WebSockets belong in a Durable Object.
+- **Ambient request context** (`enableRequestContext()`) works: `nodejs_compat`
+  provides `AsyncLocalStorage`, and it survives `await` and `setTimeout` per
+  request (tested on workerd with concurrent requests).
+- **`AppServer.run()` / `server()`** throw on Workers with: ``A Cloudflare Worker
+  does not listen on a port, so server() and AppServer.run() cannot start one.
+  Export the app instead: `export default cloudflare(app)`.``
+- **Not-found.** Same executor as other runtimes (custom `notFound`,
+  prefix-scoped sub-app handlers, global middleware), with `env`/`ctx`
+  forwarded. Without any of them, a plain `404 Not Found` is returned.
+
+### 13b.5 Gotchas
+
+- Do not create a `Response` with a body at module scope and return it from a
+  handler. Workers refuse the module scope one outright. A Response cached from
+  one request and returned (or `clone()`d) in another fails with the
+  cross-request I/O error. Build responses inside the handler.
+- `sendFile`, `listDirectory`, `saveFile`: they import fine, but a Worker has no project filesystem. Serve static assets
+  with Workers Static Assets, and store uploads in R2.
+- `setInterval`-based features (WS heartbeat, `WsTopicHub` dead-peer sweep) do
+  not apply, because ws routes are not served.
+- `memoize()` caches in module memory, per isolate.
+  Isolates are recycled and not shared across locations, so a cache is not
+  shared state.
 
 ---
 
@@ -1579,6 +1738,10 @@ app.get("/events", () => {
 | Accessing `ctx.state.auth` before auth middleware runs           | State is populated in order; sequential middleware can read earlier state via `(ctx.state as any).auth` |
 | Passing schema validators to `cors()`                            | CORS doesn't accept schema. Use `cors()` → mount with `use()`                                           |
 | Using `app.apply()` with `cors()` return value                   | Wrong: `cors()` returns an App, not a middleware function                                              |
+| Calling `app.run()` in a Cloudflare Worker                       | Export instead: `export default cloudflare(app)` (§13b)                                                 |
+| Reading bindings via `process.env` or a global in a Worker       | Use `getEnv<Env>(ctx)`; bindings arrive per request                                                     |
+| Deploying a Worker without `nodejs_compat`                       | Add `"compatibility_flags": ["nodejs_compat"]` (§13b.3)                                                 |
+| Checking `isNode` to detect a server with `process`              | On Workers `isNode` is false but `process` exists; check `isWorkers` too                                |
 
 ---
 
@@ -1673,6 +1836,7 @@ import {
   isBun,
   isDeno,
   isNode,
+  isWorkers,
   listDirectory,
   memoize,
   receiveFiles,
@@ -1694,6 +1858,10 @@ import type {
 // JWKOptions, JWK, JWKS, JWTOptions, SignJwtOptions, JWTPayload, JWTAlgorithm,
 // LoggerOptions, RequestIdOptions, SecureHeadersOptions, SessionOptions,
 // TimeoutOptions, TimingOptions
+
+// Cloudflare Workers
+import { cloudflare, getEnv, getExecutionContext } from "@coderbuzz/velox";
+import type { WorkerHandler, WorkerExecutionContext } from "@coderbuzz/velox";
 
 // Validation schemas (separate package, not a velox dependency)
 import {
@@ -1787,7 +1955,7 @@ process.on("SIGINT", async () => {
 | Runtime dependencies      | None (`dependencies: {}`)            |
 | Validation library        | Any `(val, ctx?) => T` function; examples use `@coderbuzz/veta` (install separately) |
 | License                   | MIT                                  |
-| Runtimes                  | Node.js, Bun, Deno                   |
+| Runtimes                  | Node.js, Bun, Deno, Cloudflare Workers (`nodejs_compat`) |
 | Node.js high-perf adapter | `uWebSockets.js` (optional, `UWS=1`) |
 | Module format             | ESM only                             |
 | TypeScript                | Bundled types, no `@types` needed    |
