@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@a6d69d0 -->
+<!-- docs: sync from coderbuzz/codex@b300389 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -64,6 +64,25 @@ app.get("/info", { headers: { "x-api-key": string({ min: 10 }) } }, { data: 1 })
 ```
 
 Supported methods: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`.
+
+### 2.3 Method handling (VLX-30)
+
+- **Implicit `HEAD`.** Every `GET` path without an explicit `HEAD` route also
+  answers `HEAD`: same handler, same middleware, same status and headers, no body.
+  `Content-Length` reports the GET body's length. Added at compile time only —
+  `getRoutes()`/`printRoutes()` list what you registered. An explicit
+  `app.head(path, …)` always wins.
+- **`405 Method Not Allowed`.** When the path matches some route but not with the
+  request's method, the answer is `405` with `Allow: GET, HEAD, POST, …` (the
+  implicit HEAD included), body `Method Not Allowed`. It runs the middleware of the
+  route pattern that matched, so CORS, logger and guards apply (a guard may answer
+  first, e.g. 401). Only a path no route matches is `404` (and reaches `notFound`).
+- **Strict trailing slash.** `/items/` is not `/items` — the default in Hono and
+  Fastify too. Register both if you need both.
+- **Static-value routes run middleware.** `app.get(path, value)` keeps its
+  zero-allocation fast path only when no middleware matches the route; under a
+  guard / `cors()` / `csrf()` / `secureHeaders()` it goes through the executor
+  like a handler (VLX-15).
 
 ---
 
@@ -295,7 +314,8 @@ For strict excess property checking, use a type-level `Exact<T>` wrapper if need
 All fields are lazily evaluated on first access:
 
 ```ts
-ctx.url          // string: full URL
+ctx.url          // string: full URL — scheme://host/path?query — on EVERY runtime
+ctx.path         // string: path only, no query (percent-encoding as sent)
 ctx.method       // string: "GET", "POST", etc.
 ctx.params       // parsed + validated route params
 ctx.query        // parsed + validated query string
@@ -303,7 +323,7 @@ ctx.headers      // parsed + validated headers (all keys lowercase)
 ctx.cookies      // parsed + validated cookies
 ctx.json         // Promise<T>: parsed + validated JSON body
 ctx.text         // Promise<T>: raw text body
-ctx.form         // Promise<T>: parsed form data (as plain object if validated)
+ctx.form         // Promise<T>: FormData on every runtime; plain object of validated fields if `form` schema
 ctx.body         // raw body stream (runtime-specific)
 ctx.state        // accumulated middleware state
 ctx.remoteInfo   // { address: string; port: number }
@@ -311,8 +331,56 @@ ctx.setCookie(name, value, opts?)  // set response cookie
 ctx.onFinish(cb) // register callback called after response is sent
 ```
 
+**`ctx.url` is absolute everywhere (VLX-23).** Bun, Deno and Workers pass the
+Web `Request.url` through. Node and uWS rebuild it: `https` when the socket is TLS
+(Node), otherwise `http`; the host from the `Host` header (`localhost` if absent);
+then the request target. An absolute-form target (a request sent to a forward
+proxy) is used as-is. Until this change Node and uWS gave the bare path
+(`/journals/7?x=1`), so `new URL(ctx.url)` threw there — and `csrf()` without an
+`origin` option, which does exactly that, rejected **every** same-origin request
+on Node and uWS while passing on Bun (VLX-19). Code that logged or compared
+`ctx.url` on Node now sees the full URL; use `ctx.path` for the path.
+
 **Cookie options for `setCookie`**: `path`, `domain`, `maxAge`, `expires`,
 `httpOnly`, `secure`, `sameSite: 'Strict' | 'Lax' | 'None'`.
+
+**`setCookie` validates and encodes (VLX-26).**
+- `name` must be an RFC 6265 token (letters, digits, ``!#$%&'*+-.^_`|~``), else
+  `TypeError`.
+- `value` is written byte for byte when it is made only of cookie-octets and has
+  no `%` — tokens, JWTs, base64 (`+ / =` are cookie-octets), `encryptString`
+  output. Anything else (`;`, `,`, spaces, quotes, `\`, non-ASCII, `%`) is
+  `encodeURIComponent`-ed. It used to be written verbatim, so
+  `setCookie('lang', 'en; Domain=evil.example; Max-Age=99999999')` set an
+  attacker-chosen `Domain` and lifetime on the cookie.
+- `ctx.cookies` decodes `%XX` in values (an undecodable value is kept as sent), so
+  whatever `setCookie` wrote reads back exactly.
+- `path`/`domain` containing `;` or a control character, a non-finite `maxAge`,
+  or an invalid `expires` Date throw `TypeError`. `maxAge` is truncated to an
+  integer.
+
+**`ctx.remoteInfo` is the socket peer unless you trust a proxy (VLX-18).**
+`X-Forwarded-For`, `X-Real-IP`, `CF-Connecting-IP` and `True-Client-IP` are
+request headers any client can set. They used to be believed unconditionally, so
+`ipRestriction({ allowList: [officeIp] })` let in anyone sending
+`X-Forwarded-For: <officeIp>`. Now they are read only when the socket peer is a
+proxy you declared:
+
+```ts
+import { trustProxy } from "@coderbuzz/velox";
+trustProxy(false);                        // default: never read proxy headers
+trustProxy(["10.0.0.0/8", "127.0.0.1"]); // only from these peers (IPs / CIDR, v4 or v6)
+trustProxy((peer) => peer.startsWith("10.")); // predicate
+trustProxy(true);                         // every peer — only if the app is unreachable except via the proxy
+```
+
+From a trusted peer: `CF-Connecting-IP`, then `X-Real-IP`, win if present;
+otherwise `X-Forwarded-For` is walked **from the right**, skipping hops that are
+themselves trusted, and the first untrusted hop is the client (the left end is
+whatever the client wrote); `True-Client-IP` last. `port` is 0 when the address
+came from a header. Process-wide, like `enableRequestContext()`. Invalid list
+entries throw at the `trustProxy()` call. Behind a load balancer, without
+`trustProxy`, every client appears to be the load balancer.
 
 ---
 
@@ -443,8 +511,31 @@ wanted the check.
 **Malformed bodies are 400.** A body that is not valid JSON used to become
 `null`: the handler read `null.amount`, the `TypeError` became a 500, and the
 actual cause (malformed JSON) appeared nowhere. It is now
-`HttpError(400, 'Malformed JSON body')`, in all three runtime contexts. The same
-applies to an unparseable form body.
+`HttpError(400, 'Malformed JSON body')`, in all three runtime contexts, **on
+routes with and without a `json` schema**. (Until VLX-20 the schema'd branch
+still let the parse error escape unwrapped, so exactly the routes that validate
+answered 500.) Only the *parse* is wrapped: an error thrown by your validator
+propagates as-is, for your `onError` to map. An unparseable form body is
+`HttpError(400, 'Malformed form body')`, with or without a `form` schema. Deno's
+`formData()` is lenient — garbage multipart parses as an empty form — so there the
+request reaches your validator instead.
+
+**Query decoding (`ctx.query`).** Keys and values are decoded as
+`application/x-www-form-urlencoded`, the same as `URLSearchParams`: `+` is a space
+(`?q=john+smith` → `"john smith"`; `%2B` is a literal plus), and a malformed escape
+(`%E0%A4%A`, `%ZZ`) never throws — valid escapes decode, an invalid `%` stays
+literal, non-UTF-8 bytes become U+FFFD. It used to keep `+` literal and let
+`decodeURIComponent`'s `URIError` escape as a 500 (VLX-25). A repeated key keeps
+the last value.
+
+**Form bodies (`await ctx.form`) are the same on every runtime.** Without a schema
+the result is a real `FormData` — `get`, `getAll`, `has`, `entries` — for both
+`multipart/form-data` and `application/x-www-form-urlencoded`. The Node and uWS
+adapters used to hand-parse url-encoded bodies with `pair.split('=')`, which cut
+values at a second `=` (`token=abc==` → `"abc"`), kept only the last of repeated
+keys, threw on malformed escapes, and returned a `Map` (Node) or a plain object
+(uWS) (VLX-24). With a `form` schema, each validator receives
+`formData.get(key)` — the first value, or `null` when absent.
 
 ---
 
@@ -493,7 +584,8 @@ Consequences to plan for:
 ### 6.3 HttpError: a status you chose
 
 ```ts
-new HttpError(status: number, message?: string, details?: Record<string, unknown>)
+new HttpError(status: number, message?: string, details?: Record<string, unknown>, headers?: Record<string, string>)
+// headers: extra response headers — Retry-After, WWW-Authenticate, Allow, …
 httpError.toResponse(): Response
 ```
 
@@ -532,6 +624,14 @@ a field-level list a form can render, rather than one message at a time.
 **An `onError` handler replaces the default handler entirely**, including its
 `HttpError` branch. If you install one, handle `HttpError` in it:
 `if (err instanceof HttpError) return err.toResponse();`
+
+**`onError` must return (or resolve to) a `Response` (VLX-34).** Anything else —
+most often `undefined` from a branch that forgot to `return` — is answered with
+the default 500 (`{ status, message, errorId }`, see 6.2), and both
+`[velox] onError handler returned undefined instead of a Response; answering 500.`
+and the original error are logged. It used to be sent on as a `204 No Content`:
+a failed request reported as success, with the error never logged. An `onError`
+that throws or rejects is also answered by the default handler.
 
 ### 6.4 Throwing a Response
 
@@ -679,9 +779,9 @@ These return functions that produce typed state values:
 | `requestId(options?)`     | fn          | `string`                                            |
 | `compress(options?)`      | fn          | `{ encoding: 'br' \| 'gzip' \| 'deflate' \| null }` |
 | `etag()`                  | fn          | `string \| null` (If-None-Match value, no ETag generated) |
-| `timeout(options)`        | fn          | `{ signal: AbortSignal }` or `Response`             |
+| `timeout(options)`        | fn          | `{ signal: AbortSignal }` (the deadline answers `onTimeout`/504) |
 | `secureHeaders(options?)` | fn          | `void` (sets 13 headers via onFinish)               |
-| `cache(options?)`         | fn          | `void` (sets Cache-Control via onFinish)            |
+| `cache(options?)`         | fn          | `void` (sets Cache-Control via onFinish, status < 400 only, never overwrites the handler's) |
 | `bodyLimit(options)`      | fn          | `void` or `Response`                                |
 | `timing(options?)`        | fn          | `void` (sets Server-Timing via onFinish)            |
 | `ipRestriction(options)`  | fn          | `void` or `Response`                                |
@@ -691,16 +791,54 @@ These return functions that produce typed state values:
 
 ```ts
 bodyLimit({
-  maxSize: number,          // maximum body size in bytes
-  onError?: (ctx) => Response,  // custom 413/411 response
+  maxSize: number,          // maximum body size in bytes (>= 0)
+  onError?: (ctx) => Response,  // response for a declared Content-Length over maxSize
 })
 ```
 
 **Behavior:**
 - Only applies to POST, PUT, PATCH, DELETE: safe methods (GET/HEAD/OPTIONS) pass through.
-- If `Content-Length` exceeds `maxSize` → 413 Payload Too Large (or `onError` response).
-- If `Content-Length` is missing → 411 Length Required (or `onError` response).
-- Does not read the body stream: relies on Content-Length header for efficiency.
+- Sets the per-request limit (`ctx._setBodyLimit(maxSize)`), which the body
+  readers enforce while streaming, whatever the headers say. Precedence:
+  `bodyLimit()` > `schema.bodyLimit` > `setDefaultBodyLimit()` (10 MiB).
+- Declared `Content-Length` over `maxSize` → `onError(ctx)` or `413 Payload Too Large`.
+  Up to 1 MiB over, the body is drained first (the middleware awaits it), so the
+  413 arrives after the upload ends and the connection stays usable; further over,
+  the 413 is immediate with `Connection: close`.
+- No `Content-Length` (chunked): no longer 411. The body is counted as it is read;
+  once past `maxSize` → `HttpError(413)` (not `onError`).
+
+### 8.3b Request body limits (all routes)
+
+Every body reader (`ctx.json`, `ctx.text`, `ctx.form`, eager schema validation)
+enforces a byte limit on every runtime:
+
+| Source | Scope |
+|---|---|
+| `setDefaultBodyLimit(bytes)` | process-wide default; **10 MiB** unless set; `Infinity` = none |
+| `schema.bodyLimit` | one route: `app.post(path, { bodyLimit: 50 * 1024 * 1024 }, h)` |
+| `bodyLimit({ maxSize })` middleware | one request; wins over both |
+
+Over the limit → `HttpError(413, 'Payload Too Large', { limit })`, i.e.
+`{"status":413,"message":"Payload Too Large","limit":<bytes>}`.
+
+Mechanics (VLX-22):
+- A declared `Content-Length` far over the limit (> limit + 1 MiB) is refused
+  before a byte is read, with `Connection: close`.
+- Otherwise bytes are counted while reading; past the limit nothing more is kept,
+  the rest is read and discarded, and the 413 is thrown when the upload ends —
+  up to 1 MiB of overflow; beyond that, at once with `Connection: close`. Sending
+  the 413 while the client is still uploading broke keep-alive in testing: kept
+  open, the unsent rest was parsed as the next request (a bare 400, or a hang);
+  closed, clients saw a reset instead of the 413.
+- With a `Content-Length` within the limit the runtime's native reader is used
+  (the HTTP framing guarantees the body is not longer); chunked bodies are
+  streamed and counted.
+- Memory: a refused 200 MB upload raised Node's RSS by ~11 MB (the old code
+  buffered it whole: ~660 MB).
+- Node and uWS read the body once and share it between `json`/`text`/`form`;
+  uWS copies each `onData` chunk (uWS reuses the buffer) and hooks the runtime's
+  single `onAborted` instead of replacing it.
 
 ### 8.4 JWT / JWK Options
 
@@ -728,6 +866,20 @@ jwk({
   cacheTtl?: number,        // ms, default: 600_000 (10 min)
 })
 ```
+
+`jwk()` imports each JWK into a `CryptoKey` once and reuses it (VLX-P1): a
+`WeakMap` keyed by the JWK object, one entry per algorithm. The object is stable
+for the life of `keys`, or of a fetched JWKS until its `cacheTtl` refresh, after
+which the old keys are collected. A key that fails to import is not cached.
+Measured RS256 verify: ~115 → ~97 µs per request.
+
+`jwt()` does the same for its HMAC secret: each `jwt()` instance imports its
+verify key once per hash and keeps it in its own closure (which already holds the
+secret, so nothing new stays alive; a failed import is not cached). Measured
+HS256 through the middleware on Bun 1.4.2: ~42 → ~40 µs (−6%). A bare
+`verifyJwt(token, secret)` call still imports per call: it has no instance to
+cache in, and a process-wide cache keyed by the secret would keep secrets in a
+Map for the life of the process.
 
 ```ts
 signJwt(
@@ -855,15 +1007,41 @@ works correctly under bundlers (esbuild, tsup, webpack).
 
 **Security note:** Credentials are compared using constant-time comparison (`timingSafeEqual`) to prevent timing attacks.
 
+**An empty configuration throws (VLX-27).** Without `verifyUser`, a missing or
+empty `username` or `password` throws at construction. It used to compare against
+`''`, so `basicAuth({ username: process.env.ADMIN_USER, password: process.env.ADMIN_PASS })`
+with the env vars unset admitted `Authorization: Basic Og==` (empty user and
+password).
+
 ```ts
 basicAuth({
-  username?: string,        // required if no verifyUser
-  password?: string,        // required if no verifyUser
+  username?: string,        // required (non-empty) if no verifyUser
+  password?: string,        // required (non-empty) if no verifyUser
   realm?: string,           // default: 'Secure Area'
   verifyUser?: (username: string, password: string, ctx: Context) => boolean | Promise<boolean>,
 })
 // returns { username: string } in ctx.state
 ```
+
+### 8.7b ipRestriction Options
+
+```ts
+ipRestriction({
+  allowList?: string[],   // IPs or CIDR ranges ('10.0.0.0/8', 'fd00::/8'); if set, only these pass
+  denyList?: string[],    // IPs or CIDR ranges; checked after allowList
+  onError?: (ctx: Context) => Response,  // default: 403 'Forbidden'
+})
+// returns void (pass) or a Response (blocked)
+```
+
+- Matches `ctx.remoteInfo.address` — the **socket peer**, unless `trustProxy()`
+  declared that peer a proxy (see §4). A client-sent `X-Forwarded-For` does not
+  change it.
+- IPv4 and IPv6; an IPv4-mapped peer (`::ffff:10.0.0.1`) matches its IPv4 entry,
+  and an IPv4 address never matches an IPv6 range or the reverse.
+- An invalid entry (`'localhost'`, `'10.0.0.0/33'`) throws at construction instead
+  of silently never matching. An address that does not parse matches nothing, so
+  an allow-list refuses it.
 
 ### 8.8 bearerAuth Options
 
@@ -883,24 +1061,52 @@ bearerAuth({
 ```ts
 compress({
   preferred?: CompressionEncoding[],  // default: ['br', 'gzip', 'deflate']
-  threshold?: number,                 // declared (JSDoc default 1024) but never read
+  threshold?: number,                 // @deprecated, no effect (nothing is compressed)
 })
 ```
-- Only negotiates: returns `{ encoding }` in state and sets `Vary`. It does not compress the body; the runtime or a proxy does.
+- **Only negotiates.** Returns `{ encoding }` in state and sets `Vary`. It does
+  not compress the body. Bun and Node do not compress responses on their own
+  (Deno's `Deno.serve` does), so with no reverse proxy the body goes out
+  uncompressed unless the handler compresses it (e.g. `CompressionStream`) and sets
+  `Content-Encoding` itself.
+- Negotiation follows RFC 9110 (VLX-32):
+  - `q=0` means *not acceptable*: `br;q=0, gzip` → `gzip`. (Before, `q` was ignored
+    and a substring search picked `br`.)
+  - The highest `q` wins; a tie goes to `preferred` order: `gzip;q=0.5, br;q=0.8` →
+    `br`; `gzip, br` → `br` (default order), or `gzip` with `preferred: ['gzip', …]`.
+  - `*` covers codings not listed, with its own `q`: `br;q=0, *` → `gzip`;
+    `*;q=0` → `null`.
+  - Tokens match whole and case-insensitively: `x-gzip` is not `gzip`; `GZIP` is.
+  - A malformed `q` counts as 1; values are clamped to 0..1.
+  - `null` when nothing in `preferred` is acceptable (or no header).
 - The middleware's `CompressOptions` type is not importable from `@coderbuzz/velox`: the root export of that name is the `compressString` options type (12.2).
-- `Accept-Encoding: *` (wildcard) returns the first preferred encoding.
 - Adds `Vary: Accept-Encoding` to responses via `onFinish`.
 
 ```ts
 timeout({
-  duration: number,          // milliseconds, must be > 0
-  onTimeout?: (ctx) => Response,  // NOTE: accepted but never called
+  duration: number,               // milliseconds, must be > 0 (NaN is rejected too)
+  onTimeout?: (ctx) => Response,  // default: new Response('Gateway Timeout', { status: 504 })
 })
 ```
-- `duration <= 0` throws `Error` at middleware creation time.
+- `duration` not `> 0` throws `Error` at middleware creation time.
+- **The deadline answers the request (VLX-33).** When `duration` ms pass before
+  the handler's promise settles, the request is answered with `onTimeout(ctx)`,
+  default `504 Gateway Timeout`, and the `AbortSignal` in state is aborted at the
+  same moment. If `onTimeout` throws, the 504 is sent.
+- Mechanism: the middleware registers a deadline promise on the context
+  (`ctx._setDeadline`, internal); the executor races the handler's promise
+  against it (`Promise.race`). Without `timeout()` this costs one property read
+  per request.
+- Only an **async** handler can be cut off: a synchronous handler that blocks the
+  event loop finishes before the timer can fire.
+- The handler is not stopped. Code that ignores the signal keeps running in the
+  background; its late result is discarded and a late rejection is swallowed (no
+  unhandled rejection). Pass the signal on — `fetch(url, { signal })`, a driver
+  that accepts one — to actually stop work.
+- The timer is cleared in `onFinish`, so a fast response leaves nothing behind.
 - The AbortSignal is available at `ctx.state.<key>.signal` (e.g. `ctx.state.timeoutSig.signal` for `state: { timeoutSig: timeout(...) }`).
-- It does not end or replace the response: only code that listens to the signal is cancelled.
-- Pass the signal to `fetch(url, { signal })` for network request cancellation.
+- Before: only the signal was aborted; a handler that did not pass it on ran to
+  completion and its response was sent, and `onTimeout` was never called.
 
 ### 8.10 CSRF Rules
 
@@ -929,6 +1135,14 @@ service call sends no `Origin`, and is not what CSRF protects against. A browser
 does send `Origin` on unsafe cross-origin requests, so the attack shape lands in
 step 1.
 
+**"Allowed" without an `origin` option means same-origin:** the request's
+`Origin` must equal `new URL(ctx.url).origin`. This works on every runtime since
+`ctx.url` became absolute everywhere (VLX-19/VLX-23; on Node and uWS it used to
+throw, which rejected every same-origin request). **Behind a TLS-terminating
+proxy** the server builds `http://host` while the browser sends
+`Origin: https://host`, so the default rejects — pass the public origin
+explicitly: `csrf({ origin: 'https://app.example.com' })`.
+
 ---
 
 ## 9. WebSocket
@@ -945,10 +1159,34 @@ default reporter writes `[velox] WebSocket handler error in <source>:` to
 `console.error`; pass your own to route them to a logger or a counter, or `null`
 to silence them, which is then a decision rather than an accident.
 
-`source` is `'topic dispatch'` (pub/sub fan-out) or `'message handler'` (the
-Node adapter's inbound frame path).
+`source` is `'<name> handler'` for the handler that failed — `'open handler'`,
+`'message handler'`, `'close handler'`, `'ping handler'`, `'pong handler'`,
+`'error handler'`, `'drain handler'`, `'upgrade handler'` — or `'topic dispatch'`
+for a `WsTopicHub` callback. This holds on **every** runtime adapter (Bun, Node,
+uWS, Deno).
 
-Previously both sites were empty `catch` blocks. A handler that threw on one
+**Async handlers are covered.** A handler may be `async`; a rejection is reported
+exactly like a synchronous throw. Before this, only synchronous throws were caught:
+an `async message()` that rejected produced an **unhandled rejection, which ends
+the process on Bun and Node** — one malformed message took the whole server down,
+every other connection and every HTTP request with it (VLX-17). Handlers are
+called as methods of the handler object, so `this` inside a handler still works.
+
+**An upgrade handler that throws** answers the upgrade with 500 *and* is reported
+(`'upgrade handler'`); it used to be answered 500 silently.
+
+**`close` fires exactly once per connection** on every adapter. The Node adapter
+used to call it twice on a server-initiated close (once from `peer.close()`, again
+when the client's close frame arrived), so presence counters and lock releases
+in a close handler ran twice.
+
+**uWS binary messages are copied** before the handler runs: uWS reuses the
+ArrayBuffer after the callback returns, so an async handler reading it after an
+`await` used to see a detached buffer.
+
+Previously most sites were empty `catch` blocks, and the first fix (audit #1,
+VLX-10) only reached the Node `message` path and `WsTopicHub.dispatch`; Bun, uWS
+and Deno kept swallowing (VLX-21). A handler that threw on one
 malformed payload stopped delivering for that message with no log, no hook and
 no counter, and the symptom that reached you was "sometimes the notification
 doesn't arrive," close to undiagnosable.
@@ -1033,7 +1271,7 @@ hub.startDeadPeerCheck(checkIntervalMs, timeoutMs) / hub.stopDeadPeerCheck()
 hub.subscriberCount(topic); hub.isSubscribed(peer, topic); hub.topicNames()
 ```
 
-`TopicCallback<T>` is `(peer, msg) => void`. A throwing handler in `dispatch()` is reported through `onWsHandlerError` with source `'topic dispatch'`.
+`TopicCallback<T>` is `(peer, msg) => void | Promise<void>`. A throwing handler in `dispatch()` — or an async one that rejects — is reported through `onWsHandlerError` with source `'topic dispatch'`.
 
 ### 9.5 WsOptions Defaults
 
@@ -1041,7 +1279,7 @@ hub.subscriberCount(topic); hub.isSubscribed(peer, topic); hub.topicNames()
 pingInterval:       30 (seconds)
 pongTimeout:        10 (seconds)
 idleTimeout:        120 (seconds)
-maxPayloadLength:   16_777_216 (16 MB)
+maxPayloadLength:   16_777_216 (16 MB) — bounds the assembled MESSAGE, fragments included
 backpressureLimit:  16_777_216 (16 MB)
 closeOnBackpressureLimit: false
 perMessageDeflate:  false
@@ -1095,8 +1333,22 @@ Options:
   reqHeaders?: Headers | Record<string, string>,
   // pass ctx.headers to enable: ETag/If-None-Match (→304),
   //   Last-Modified/If-Modified-Since (→304), Range (→206)
+  root?: string,                  // base dir the path must stay inside
 }
 ```
+
+**Path containment (`root`) — required for untrusted input.** Without `root`,
+`sendFile` opens exactly the path given: `sendFile("./public/" + ctx.params.name)`
+serves `../../etc/passwd` for `name = "../../etc/passwd"` (arbitrary file read).
+When `root` is set, the served path is computed as `path.resolve(root, filePath)`
+and the request is answered **404 before the file is opened** if the result is not
+`root` itself or a descendant of it (the `+ path.sep` check also blocks a sibling
+dir whose name is a prefix of `root`, e.g. `/srv/pub` vs `/srv/public`). A NUL
+byte (`\u0000`) in `filePath` is refused on every call, with or without `root`.
+`filePath` may be the raw request sub-path (`sendFile(ctx.params.name, { root })`)
+or an already-joined absolute path (`sendFile(join(root, name), { root })`); both
+are checked against `root`. There is no matching containment for a path with no
+`root`, which is why `root` is mandatory whenever the path is user-controlled.
 
 ### 11.2 listDirectory
 
@@ -1204,6 +1456,19 @@ iteration count is part of the recipe too; changing it changes the key.
 ciphertext can be read and re-encrypted. There is no equivalent on
 `encryptString`: the weak form cannot be written any more.
 
+**Malformed base64 is an error (VLX-35).** The internal decoders behind
+`decryptString`, the secret and salt of `encryptString`/`deriveKeyFromPassphrase`,
+`decompressString`, and JWT parsing (`jwt()`, `jwk()`, `verifyJwt`,
+`unsafeDecodeJwtWithoutVerification`) reject a
+character outside the alphabet (standard `A–Z a–z 0–9 + /` with `=` padding;
+base64url `- _`, unpadded), padding anywhere but the end, and a length that no
+encoding produces (4n+1). Before, any such character silently decoded as `0`
+bits, so a mangled ciphertext or token reached the crypto layer as different
+bytes instead of failing at decode. `decryptString` already threw on a bad
+ciphertext, so callers see the same kind of failure, only earlier; in `jwt()`
+and `jwk()` a token whose segments are not base64url is a 401, and
+`unsafeDecodeJwtWithoutVerification` throws.
+
 LRU key caching (64 entries) avoids repeated key import. The cache is keyed by a
 digest of the secret, not the secret: this Map lives for the life of the process,
 and a plaintext session secret in it would appear verbatim in every heap and core
@@ -1225,6 +1490,12 @@ const d = await decompressString(c, { encoding: "gzip" });
 
 Encodings: `'gzip'` (default), `'deflate'`, `'deflate-raw'`. gzip/deflate
 levels: 0–9. Output is base64url-encoded (safe for cookies and URLs).
+
+**`decompressString(s, { maxOutputSize })` caps the output (VLX-29):** default
+10 MiB (`10 * 1024 * 1024`), `Infinity` to disable. Over it, decompression stops
+and a `RangeError` is thrown. Compressed input is usually attacker-controlled (a
+cookie, a body) and deflate expands ~1000× — measured 766× for a 6.5 KB input
+that became 5 MB.
 
 ### 12.3 Memoize
 
@@ -1470,9 +1741,10 @@ only from `2025-09-15`.
   I/O on behalf of a different request`), so the second request got a 500. The
   Workers adapter calls `toResponse(value)` per request instead. It serializes
   JSON each time, which costs little and is required.
-- **Remote info.** `ctx.remoteInfo.address` comes from `cf-connecting-ip`
-  (always set by Cloudflare, read first by `BaseContext`). The runtime fallback
-  is `{ address: '', port: 0 }`, so the port is always `0`.
+- **Remote info.** `ctx.remoteInfo.address` comes from `cf-connecting-ip`, which
+  the Workers adapter treats as the peer address: a Worker is reached only
+  through Cloudflare's edge, which sets that header itself. No `trustProxy()` is
+  needed. Absent the header it is `''`; the port is always `0`.
 - **WebSocket routes.** `app.ws(path)` is not served. A request to that exact
   path with `upgrade: websocket` gets `501 WebSocket routes are not supported
   on Cloudflare Workers`. Non-upgrade requests to the same path route normally.

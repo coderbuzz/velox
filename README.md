@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@a6d69d0 -->
+<!-- docs: sync from coderbuzz/codex@b300389 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -276,6 +276,13 @@ app.delete("/items/:id", handler);
 app.head("/items", handler);
 app.options("/items", handler);
 ```
+
+- **`HEAD` is automatic** for every `GET` route (same status and headers, no
+  body); an explicit `app.head()` wins.
+- **A wrong method is `405 Method Not Allowed`** with an `Allow` header, not a
+  404. The route's middleware (CORS, logging, guards) still runs for it.
+- **Trailing slashes are strict:** `/items/` does not match `/items` (as in Hono
+  and Fastify by default).
 
 ### Route Introspection
 
@@ -564,17 +571,17 @@ app.use(api); // without prefix, routes merged at root
 | `cors()` | CORS with dynamic origin resolver, custom headers, credentials |
 | `csrf()` | CSRF protection: checks `Origin` on every unsafe request |
 | `secureHeaders()` | Helmet-inspired security headers (13 headers) |
-| `ipRestriction()` | Allow/deny list by IP address |
+| `ipRestriction()` | Allow/deny list by IP address or CIDR range (socket peer unless `trustProxy()`) |
 
 ### Performance & Observability
 
 | Middleware | Description |
 |---|---|
-| `compress()` | Content-encoding negotiation (gzip, deflate, br) |
+| `compress()` | Content-encoding negotiation (gzip, deflate, br; honours `q`). Negotiates only: it does not compress the body |
 | `cache()` | Cache-Control headers (CDN-friendly) |
 | `etag()` | Puts the `If-None-Match` request header in state (you set `ETag` and answer 304) |
 | `timing()` | Server-Timing header |
-| `timeout()` | AbortSignal in state that aborts after `duration` ms (does not end the response) |
+| `timeout()` | Deadline: after `duration` ms answers `onTimeout(ctx)` (default 504) and aborts the signal in state |
 
 ### Request Handling
 
@@ -599,8 +606,24 @@ app.post("/upload", {
 }, handler);
 ```
 
-Body limit only applies to POST, PUT, PATCH, and DELETE methods. When
-`Content-Length` is missing, the request is rejected with 411 Length Required.
+Body limit only applies to POST, PUT, PATCH, and DELETE methods. A declared
+`Content-Length` over the limit is refused up front; a chunked body (no
+`Content-Length`) is counted while it is read and refused with 413 once it passes
+the limit.
+
+**Every route has a limit, even without this middleware: 10 MiB by default.**
+
+```ts
+import { setDefaultBodyLimit } from "@coderbuzz/velox";
+
+setDefaultBodyLimit(2 * 1024 * 1024);          // process-wide default
+app.post("/import", { bodyLimit: 50 * 1024 * 1024 }, handler); // one route
+```
+
+A body over the limit is `413 Payload Too Large`, sent once the upload has ended
+(so the client reliably receives it) unless it is more than 1 MiB over, in which
+case it is refused at once and the connection closed. There used to be no limit:
+on Node a 200 MB POST took the process to ~660 MB of memory.
 
 ### CORS
 
@@ -884,7 +907,13 @@ routes that wanted the check.
 
 **Malformed bodies are 400, not `null`.** A body that is not valid JSON used to
 become `null`, so the handler read `null.amount`, that `TypeError` became a 500,
-and the real cause was never named anywhere.
+and the real cause was never named anywhere. This holds with or without a `json`
+schema, and for unparseable form bodies too.
+
+**Query and form decoding match `URLSearchParams` on every runtime.** `+` is a
+space (`?q=john+smith` → `"john smith"`), a malformed escape never becomes a 500,
+and `await ctx.form` is a real `FormData` (with `getAll`) on Bun, Node, uWS and
+Deno alike; values containing `=` are kept whole.
 
 ---
 
@@ -898,7 +927,8 @@ tenant's data handed to whoever made the request. The real error is logged
 server-side under the same `errorId`, so a user's report points straight at it.
 
 Anything the client should see is an explicit decision: an `onError` handler, or
-a thrown `Response`. Both are passed through untouched.
+a thrown `Response`. Both are passed through untouched. An `onError` must return a
+`Response`: one that returns nothing is answered 500 and logged, not sent as 204.
 
 ```ts
 // App-level error handler
@@ -1011,13 +1041,22 @@ app.get("/stream", () => {
 import { sendFile } from "@coderbuzz/velox";
 
 app.get("/download/:name", (ctx) =>
-  sendFile(`./uploads/${ctx.params.name}`, {
+  sendFile(ctx.params.name, {
+    root: "./uploads",          // REQUIRED for user input — see below
     download: true,
     cacheControl: "public, max-age=3600",
-    reqHeaders: ctx.headers, // enables ETag/Range/If-Modified-Since
+    reqHeaders: ctx.headers,    // enables ETag/Range/If-Modified-Since
   }),
 );
 ```
+
+**Pass `root` whenever the path comes from the request.** Without it there is no
+containment: `sendFile("./uploads/" + ctx.params.name)` serves `../../etc/passwd`
+for `name = "../../etc/passwd"`. With `root`, the final path is resolved and a
+request that escapes it (or carries a NUL byte) is answered **404 — the file is
+never opened**. `filePath` is resolved against `root`, so passing the raw sub-path
+(`sendFile(ctx.params.name, { root })`) or an already-joined path
+(`sendFile(join(root, name), { root })`) are both checked.
 
 `sendFile` supports ETag, Range requests (→ 206 Partial Content), and
 Last-Modified. On Bun, uses `Bun.file()` for zero-copy sendfile.
@@ -1094,6 +1133,10 @@ const compressed = await compressString("large text payload...");
 const original = await decompressString(compressed);
 ```
 
+`decompressString` refuses output over 10 MiB by default
+(`{ maxOutputSize: bytes }`, or `Infinity`): compressed input is often
+attacker-supplied, and deflate expands ~1000×.
+
 ### Memoization
 
 ```ts
@@ -1108,6 +1151,27 @@ const fetchUser = memoize(
 // detected: pass `async: true` to get in-flight deduplication for it.
 const fetchOrg = memoize((id: string) => db.orgs.findById(id), { async: true });
 ```
+
+### Client IP behind a proxy
+
+`ctx.remoteInfo` (and so `ipRestriction()`) uses the **socket peer**.
+`X-Forwarded-For` and friends are ordinary request headers that any client can
+send, so they are only read from a proxy you declare:
+
+```ts
+import { trustProxy } from "@coderbuzz/velox";
+
+trustProxy(["10.0.0.0/8"]); // your load balancers; IPs or CIDR ranges, v4 or v6
+```
+
+Without it, behind a load balancer every client looks like the load balancer.
+On Cloudflare Workers nothing is needed: `CF-Connecting-IP` is set by Cloudflare.
+
+### Cookies
+
+`ctx.setCookie(name, value, options)` rejects an invalid name, and percent-encodes
+a value that is not a plain token (so a value cannot inject `; Domain=…`);
+`ctx.cookies` decodes it back. Tokens, JWTs and base64 are written unchanged.
 
 ### CSRF
 
@@ -1131,6 +1195,11 @@ is one an HTML form can produce, and allowed otherwise: a non-browser client
 (curl, a mobile app, a service call) sends no `Origin`, and it is not what CSRF
 protects against.
 
+`csrf()` with no `origin` option compares against the origin of `ctx.url`. Behind
+a proxy that terminates TLS, the server sees `http://` while the browser sends
+`Origin: https://…`, so list your public origin explicitly there:
+`csrf({ origin: "https://app.example.com" })`.
+
 ### WebSocket handler errors
 
 A throwing WebSocket handler is isolated from the others on the same socket, and
@@ -1143,9 +1212,11 @@ onWsHandlerError((error, source) => metrics.increment("ws.handler_error", { sour
 onWsHandlerError(null); // silence them: a decision, not an accident
 ```
 
-The default writes to `console.error`. Without it, a handler that threw on one
-malformed payload simply stopped delivering, and the symptom reaching you was
-"sometimes the notification doesn't arrive".
+The default writes to `console.error`. This covers every handler (`open`,
+`message`, `close`, `ping`, `pong`, `drain`, `error`, `upgrade`) on every runtime,
+and **async handlers too**: a rejecting `async message()` used to become an
+unhandled rejection that ended the whole process on Bun and Node. `close` is
+called exactly once per connection.
 
 ### Ambient Request Context
 
@@ -1212,7 +1283,8 @@ if (isBun) console.log("Running on Bun");
 
 | Property | Type | Description |
 |---|---|---|
-| `ctx.url` | `string` | Full request URL |
+| `ctx.url` | `string` | Full request URL (scheme, host, path, query), on every runtime |
+| `ctx.path` | `string` | Request path, without query string |
 | `ctx.method` | `string` | HTTP method |
 | `ctx.params` | `Record<string, string>` (or typed) | Route params |
 | `ctx.query` | `Record<string, string>` (or typed) | Query string |
@@ -1223,7 +1295,7 @@ if (isBun) console.log("Running on Bun");
 | `ctx.form` | `Promise<FormData>` (or typed) | Form data body |
 | `ctx.body` | `any` | Raw body stream |
 | `ctx.state` | typed | Middleware state |
-| `ctx.remoteInfo` | `{ address: string; port: number }` | Client IP and port |
+| `ctx.remoteInfo` | `{ address: string; port: number }` | Client IP and port: the socket peer, unless `trustProxy()` names it as your proxy |
 | `ctx.setCookie(name, value, opts?)` | `void` | Set a response cookie |
 | `ctx.onFinish(cb)` | `void` | Post-response callback |
 
