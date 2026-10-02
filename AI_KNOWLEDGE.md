@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@b300389 -->
+<!-- docs: sync from coderbuzz/codex@b279e61 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -383,6 +383,31 @@ entries throw at the `trustProxy()` call. Behind a load balancer, without
 `trustProxy`, every client appears to be the load balancer.
 
 ---
+
+### 4.x Routes that never build a Context
+
+A route is answered without constructing `ctx` when nothing could observe it:
+
+- the handler declares no parameter (`() => ...`, `async () => ...`,
+  `function () {...}`), **and**
+- the route has no middleware (`state`) and no `params` / `query` / `headers` /
+  `cookies` / `json` / `text` / `form` / `response` schema.
+
+The handler is called and its value converted with `toResponse` directly. The
+result is identical to the general path; only the cost differs (on Bun, about
+0.7 µs instead of 1.3 µs of JS per request for a small JSON body).
+
+- A throw or rejection still builds the Context and goes through the normal
+  chain: route `onError`, app `onError`, then the default 500 (§6).
+- With the ambient request context on (§12.4), every request takes the general
+  path, so `getRequestContext()` works inside a parameterless handler.
+- A handler that can still reach the Context is never shortcut:
+  `(...args) => ...`, `(ctx = x) => ...` and a plain `function` that reads
+  `arguments` all report `length === 0` but receive `ctx` as before.
+- Runtimes call executors with at most two arguments after `getRemoteInfo`
+  (Cloudflare `env`, `executionCtx`; Node `url`). A custom adapter built on the
+  exported `createExecutor` that passes more loses the extras on this path's
+  error branch only.
 
 ## 5. Middleware & State System
 
