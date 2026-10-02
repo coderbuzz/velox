@@ -1,8 +1,8 @@
-<!-- docs: sync from coderbuzz/codex@b279e61 -->
+<!-- docs: sync from coderbuzz/codex@4a5df62 -->
 
 # Velox: `@coderbuzz/velox`
 
-> **TypeScript HTTP framework benchmarked at 269K req/s on Bun, ahead of Elysia, Hono, and Express in the benchmarks below.** Runtime-agnostic with full type safety.
+> **TypeScript HTTP framework that ties Elysia on simple GETs on Bun and is ahead of Hono and Express (benchmarks below).** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 <p align="center">
   <a href="https://www.npmjs.com/package/@coderbuzz/velox"><img src="https://img.shields.io/npm/v/@coderbuzz/velox.svg?style=flat-square" alt="npm version" /></a>
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-Velox reaches **269K req/s** for simple GET and **119K req/s** for validation POST on Bun, ahead of Elysia, Hono, and Express in both benchmarks (see below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+On Bun, Velox serves **~152K req/s** for a simple GET with a static value, level with Elysia and about 2× Hono, and **~34K req/s** for a validated POST, where Elysia currently leads by 1.21× (see below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -21,7 +21,7 @@ Velox reaches **269K req/s** for simple GET and **119K req/s** for validation PO
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (simple GET) | ~262K req/sec | ~170K req/sec | ~100K req/sec | **~269K req/sec** on Bun |
+| Performance (simple GET, Bun) | ~146K req/s | ~75K req/s | ~37K req/s | **~152K req/s** (tie with Elysia) |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -37,26 +37,19 @@ Velox reaches **269K req/s** for simple GET and **119K req/s** for validation PO
 
 Full benchmark results at **[github.com/coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks)**.
 
-Velox on Bun (Apple M-series, oha `-c 100 -z 10s`):
+Measured on the benchmarks reference machine (Linux x64, Intel Xeon @ 2.10GHz, 4 cores; Bun 1.4.2; Velox 0.7.1) on
+2026-10-02. `oha -c 100`, 3 s warmup, best of 3 × 10 s runs, req/s:
 
-| Scenario | Requests/sec |
-|---|---|
-| Simple GET (inline JSON) | **~269K req/s** |
-| Validation POST (veta schema) | **~119K req/s** |
+| Scenario | Velox | Elysia | Hono | Express | Result |
+|---|---|---|---|---|---|
+| Simple GET, static value | **152,152** | 145,875 | 75,379 | 37,005 | tie with Elysia; 2.0× Hono |
+| Simple GET, handler | 90,936 | **97,632** | 76,805 | 35,313 | tie with Elysia; 1.18× Hono |
+| Validation POST (body + query + params + headers) | 34,429 | **41,780** | 33,003 | 17,057 | Elysia 1.21× |
 
-Comparative numbers (simple GET, Bun):
-- **@coderbuzz/velox**: **269,388 req/s**
-- **Elysia**: 262,685 req/s (1.026x factor)
-- **Hono**: 170,044 req/s (1.58x factor)
-- **Express**: 100,762 req/s (2.67x factor)
+Gaps under 10% count as a tie: repeat runs on that machine move a result by up to ~8%. Current numbers, for
+agents and scripts: [`results/latest.json`](https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json).
 
-Validation POST (veta schema):
-- **@coderbuzz/velox**: **119,058 req/s**
-- **Elysia**: 94,776 req/s (1.26x factor)
-- **Hono**: 74,657 req/s (1.60x factor)
-- **Express**: 48,652 req/s (2.45x factor)
-
-> Run benchmarks yourself: `git clone https://github.com/coderbuzz/benchmarks && cd benchmarks && bash packages/velox/static-value/run.sh`
+> Run them yourself (needs [`oha`](https://github.com/hatoo/oha)): `git clone https://github.com/coderbuzz/benchmarks && cd benchmarks && bun install && bun run velox:static`
 
 ---
 
