@@ -1,10 +1,40 @@
-<!-- docs: sync from coderbuzz/codex@4a5df62 -->
+<!-- docs: sync from coderbuzz/codex@a69e432 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
 **Package**: `@coderbuzz/velox`\
 **Purpose**: This document is a comprehensive reference for AI agents generating
 application code with the Velox framework. Treat every rule here as authoritative.
+
+---
+
+## Benchmarks
+
+Measured with the in-repo suite (`bun run bench -- --pkg velox`), not the public benchmarks repo. Machine: Intel Xeon Platinum 8255C @ 2.50GHz, 4 vCPU Linux VM, Bun 1.4.2; Velox at codex `b9ab697`; Elysia 1.4.30, Hono 4.13.13, Express 5.2.1. Servers and the load generator are pinned to separate CPUs; `oha` 1.16.0 with `-c 100`, a 3 s warmup, and 5 runs of 10 s per scenario in one process, median req/s, 2026-10-09:
+
+| Scenario | Velox | Elysia | Hono | Express | Result |
+|---|---|---|---|---|---|
+| Simple GET, static value | 79,251 | **85,661** | 52,265 | 26,007 | tie with Elysia (-7.5% median, inside noise) |
+| Simple GET, handler without request | 47,108 | 47,606 | 41,557 | 20,691 | tie with Elysia (0.99x) |
+| GET with path parameter | 46,639 | 46,588 | 39,215 | 19,612 | tie with Elysia (1.00x) |
+| Validation POST (body + query + params + headers) | **31,301** | 23,883 | 20,689 | 10,965 | **1.31x Elysia**, ahead in 5 of 5 runs |
+
+Only the validation result is a measured win over Elysia. With 5 runs and 7% to 15% run-to-run spread, a gap has to be larger than about 20% to 45% to count, so "tie" means "not detectable", not "equal". Velox uses about the same server CPU per request as Elysia on the first three scenarios (static 2.59 vs 2.43 us, handler 7.80 vs 7.78 us, params 8.08 vs 8.00 us) and less on validation (18.25 vs 26.05 us). Compared with Velox before the 2026-09 performance work (`cca8983`), no scenario regressed; the handler and params scenarios are 5% to 6% faster and validation 24% faster, all inside the noise rule.
+
+> Run them yourself (needs [`oha`](https://github.com/hatoo/oha)): `bun run bench -- --pkg velox` in the repository. The public benchmarks repo ([github.com/coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks)) has its own, older runs on other hardware.
+
+Raw detail for agents (same run, medians; user CPU per request in microseconds):
+
+| Scenario | Velox | Elysia | Native `Bun.serve` | Velox / Elysia | Velox / before | Velox user CPU | Elysia user CPU |
+|---|---|---|---|---|---|---|---|
+| static | 79,251 | 85,661 | 85,589 | 0.925 (paired 2/5 runs ahead) | 0.943 | 2.59 | 2.43 |
+| noreq | 47,108 | 47,606 | 48,030 | 0.990 (paired 2/5) | 1.049 | 7.80 | 7.78 |
+| params | 46,639 | 46,588 | 47,260 | 1.001 (paired 3/5) | 1.062 | 8.08 | 8.00 |
+| validation | 31,301 | 23,883 | n/a | 1.311 (real, paired 5/5, range 1.283-1.341) | 1.244 | 18.25 | 26.05 |
+
+Other scenarios against the earlier build only (Elysia has no entry): ctx-unused 1.063x, handler with middleware 1.053x, 404 not-found 0.985x, all inside noise. Static with middleware is not comparable (the earlier build skipped middleware).
+
+In the static scenario the best run of Velox (86,203) equals the best of Elysia (85,709); the median is pulled down by one or two slow runs on a machine whose throughput shifts between runs, and one process with `--repeat 1` cannot separate that from a real 7% gap. A rerun with `--repeat 2` or more would settle it; do not claim either "faster" or "slower" for static. Do not write claims of `>=` Elysia for static, handler or params.
 
 ---
 
@@ -62,6 +92,10 @@ app.get("/users/:id", { params: { id: coerce(number()) } }, (ctx) => {
 // Form 4: schema + static value (rare, but valid)
 app.get("/info", { headers: { "x-api-key": string({ min: 10 }) } }, { data: 1 });
 ```
+
+JSON responses (an object or array returned by a handler, or a static object) are built with `Response.json`, so the `content-type` is `application/json;charset=utf-8` on Bun and `application/json` on Node.js and Deno; the runtime decides. Match it by prefix (`startsWith("application/json")`) rather than by equality. Strings are sent as `text/plain`, `null`/`undefined` as `204`.
+
+Details: `toResponse(value, defaultStatus?)` calls `Response.json(value)` (or `Response.json(value, { status })` when a response schema sets a default `status`). A value that serialises to `undefined` (`toJSON() => undefined`) is rejected by `Response.json` on Node and Deno; velox catches that and answers `200` with an empty body and `content-type: application/json` on every runtime, as before. A `BigInt` or a cycle throws the same error as before and goes to `onError`. Error responses (`HttpError.toResponse`, the default 500) set `application/json` explicitly. Text responses keep an explicit `text/plain` header. The Cloudflare Workers adapter builds the JSON response per request with the same function.
 
 Supported methods: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`.
 

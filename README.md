@@ -1,8 +1,8 @@
-<!-- docs: sync from coderbuzz/codex@4a5df62 -->
+<!-- docs: sync from coderbuzz/codex@a69e432 -->
 
 # Velox: `@coderbuzz/velox`
 
-> **TypeScript HTTP framework that ties Elysia on simple GETs on Bun and is ahead of Hono and Express (benchmarks below).** Runtime-agnostic with full type safety.
+> **TypeScript HTTP framework that ties Elysia on simple GETs on Bun, is ahead of it on validated POSTs, and is ahead of Hono and Express (benchmarks below).** Runtime-agnostic with full type safety.
 > AI agents: see [AI_KNOWLEDGE.md](https://github.com/coderbuzz/velox/blob/main/AI_KNOWLEDGE.md) for expert context.
 <p align="center">
   <a href="https://www.npmjs.com/package/@coderbuzz/velox"><img src="https://img.shields.io/npm/v/@coderbuzz/velox.svg?style=flat-square" alt="npm version" /></a>
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-On Bun, Velox serves **~152K req/s** for a simple GET with a static value, level with Elysia and about 2× Hono, and **~34K req/s** for a validated POST, where Elysia currently leads by 1.21× (see below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+On Bun, Velox is level with Elysia on simple GETs (static value, handler, path parameter) and serves a validated POST **1.31x** faster than Elysia (benchmarks below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -21,7 +21,7 @@ On Bun, Velox serves **~152K req/s** for a simple GET with a static value, level
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (simple GET, Bun) | ~146K req/s | ~75K req/s | ~37K req/s | **~152K req/s** (tie with Elysia) |
+| Performance (Bun) | Level with Velox on simple GETs; 1.31x slower on validated POST | Slower than Velox on every benchmark scenario | Slowest, about 2x to 3x behind Velox | Level with Elysia on simple GETs; **1.31x Elysia** on validated POST |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -35,21 +35,18 @@ On Bun, Velox serves **~152K req/s** for a simple GET with a static value, level
 
 ## Benchmarks
 
-Full benchmark results at **[github.com/coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks)**.
-
-Measured on the benchmarks reference machine (Linux x64, Intel Xeon @ 2.10GHz, 4 cores; Bun 1.4.2; Velox 0.7.1) on
-2026-10-02. `oha -c 100`, 3 s warmup, best of 3 × 10 s runs, req/s:
+Measured with the in-repo suite (`bun run bench -- --pkg velox`), not the public benchmarks repo. Machine: Intel Xeon Platinum 8255C @ 2.50GHz, 4 vCPU Linux VM, Bun 1.4.2; Velox at codex `b9ab697`; Elysia 1.4.30, Hono 4.13.13, Express 5.2.1. Servers and the load generator are pinned to separate CPUs; `oha` 1.16.0 with `-c 100`, a 3 s warmup, and 5 runs of 10 s per scenario in one process, median req/s, 2026-10-09:
 
 | Scenario | Velox | Elysia | Hono | Express | Result |
 |---|---|---|---|---|---|
-| Simple GET, static value | **152,152** | 145,875 | 75,379 | 37,005 | tie with Elysia; 2.0× Hono |
-| Simple GET, handler | 90,936 | **97,632** | 76,805 | 35,313 | tie with Elysia; 1.18× Hono |
-| Validation POST (body + query + params + headers) | 34,429 | **41,780** | 33,003 | 17,057 | Elysia 1.21× |
+| Simple GET, static value | 79,251 | **85,661** | 52,265 | 26,007 | tie with Elysia (-7.5% median, inside noise) |
+| Simple GET, handler without request | 47,108 | 47,606 | 41,557 | 20,691 | tie with Elysia (0.99x) |
+| GET with path parameter | 46,639 | 46,588 | 39,215 | 19,612 | tie with Elysia (1.00x) |
+| Validation POST (body + query + params + headers) | **31,301** | 23,883 | 20,689 | 10,965 | **1.31x Elysia**, ahead in 5 of 5 runs |
 
-Gaps under 10% count as a tie: repeat runs on that machine move a result by up to ~8%. Current numbers, for
-agents and scripts: [`results/latest.json`](https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json).
+Only the validation result is a measured win over Elysia. With 5 runs and 7% to 15% run-to-run spread, a gap has to be larger than about 20% to 45% to count, so "tie" means "not detectable", not "equal". Velox uses about the same server CPU per request as Elysia on the first three scenarios (static 2.59 vs 2.43 us, handler 7.80 vs 7.78 us, params 8.08 vs 8.00 us) and less on validation (18.25 vs 26.05 us). Compared with Velox before the 2026-09 performance work (`cca8983`), no scenario regressed; the handler and params scenarios are 5% to 6% faster and validation 24% faster, all inside the noise rule.
 
-> Run them yourself (needs [`oha`](https://github.com/hatoo/oha)): `git clone https://github.com/coderbuzz/benchmarks && cd benchmarks && bun install && bun run velox:static`
+> Run them yourself (needs [`oha`](https://github.com/hatoo/oha)): `bun run bench -- --pkg velox` in the repository. The public benchmarks repo ([github.com/coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks)) has its own, older runs on other hardware.
 
 ---
 
@@ -234,6 +231,8 @@ app.get("/", "Hello Velox!"); // string → text/plain
 app.get("/health", "OK");
 app.get("/version", { version: "1.0.0" }); // object → JSON-serialized
 ```
+
+JSON responses (an object or array returned by a handler, or a static object) are built with `Response.json`, so the `content-type` is `application/json;charset=utf-8` on Bun and `application/json` on Node.js and Deno; the runtime decides. Match it by prefix (`startsWith("application/json")`) rather than by equality. Strings are sent as `text/plain`, `null`/`undefined` as `204`.
 
 ### Dynamic Params
 
