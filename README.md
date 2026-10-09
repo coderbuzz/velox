@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@a69e432 -->
+<!-- docs: sync from coderbuzz/codex@b9bcd6e -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -339,6 +339,8 @@ app.get("/api/resource", {
   headers: { "x-api-key": string({ min: 10 }) },
 }, (ctx) => Response.json({ key: ctx.headers["x-api-key"] }));
 ```
+
+A missing header reaches its validator as `undefined`, like a missing query key: `string()` requires the header, `optional(string())` makes it optional. A header sent empty is `""`. (Before 0.8.0 a missing header arrived as `""`, so `string()` accepted a request without it.)
 
 ### Cookies
 

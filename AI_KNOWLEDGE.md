@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@a69e432 -->
+<!-- docs: sync from coderbuzz/codex@b9bcd6e -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -136,6 +136,8 @@ The schema object is the second argument before the handler. It has these keys:
 | `state`   | `StateMiddleware`                   | `ctx.state.xxx` (after middleware runs)  |
 | `onError` | `ErrorHandler`                      | invoked if handler/middleware throws     |
 | `response`| `ResponseSchema`                    | validated after finish callbacks         |
+
+**Missing values reach the validator as `undefined`** for `params`, `query`, `headers` and `cookies` alike, on every runtime (Bun, Node, Node+uWS, Deno, Workers). For headers: `string()` rejects a request without the header, `optional(string())` gives `undefined`, and a header sent with an empty value gives `""`. Before 0.8.0 a missing header was passed as `""` (`headers.get(key) || ''`), so a bare `string()` accepted a request without it and `optional()` never produced `undefined`; code written for that needs `string({ min: 1 })` or `optional(...)` as appropriate.
 
 ### 3.1 Validators from `@coderbuzz/veta`
 
