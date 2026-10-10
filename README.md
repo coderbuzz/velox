@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@b9bcd6e -->
+<!-- docs: sync from coderbuzz/codex@ef21ff0 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-On Bun, Velox is level with Elysia on simple GETs (static value, handler, path parameter) and serves a validated POST **1.31x** faster than Elysia (benchmarks below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+On Bun, Velox is level with Elysia on simple GETs (static value, handler) and serves a validated POST **1.28x** faster than Elysia (benchmarks below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -21,7 +21,7 @@ On Bun, Velox is level with Elysia on simple GETs (static value, handler, path p
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (Bun) | Level with Velox on simple GETs; 1.31x slower on validated POST | Slower than Velox on every benchmark scenario | Slowest, about 2x to 3x behind Velox | Level with Elysia on simple GETs; **1.31x Elysia** on validated POST |
+| Performance (Bun) | Level with Velox on simple GETs; 1.28x slower on validated POST | Slower than Velox on every benchmark scenario | Slowest, about 2.5x to 3.6x behind Velox | Level with Elysia on simple GETs; **1.28x Elysia** on validated POST |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -35,18 +35,17 @@ On Bun, Velox is level with Elysia on simple GETs (static value, handler, path p
 
 ## Benchmarks
 
-Measured with the in-repo suite (`bun run bench -- --pkg velox`), not the public benchmarks repo. Machine: Intel Xeon Platinum 8255C @ 2.50GHz, 4 vCPU Linux VM, Bun 1.4.2; Velox at codex `b9ab697`; Elysia 1.4.30, Hono 4.13.13, Express 5.2.1. Servers and the load generator are pinned to separate CPUs; `oha` 1.16.0 with `-c 100`, a 3 s warmup, and 5 runs of 10 s per scenario in one process, median req/s, 2026-10-09:
+Numbers from the public benchmarks repo, [coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks) (`results/latest.json`): the repo's cloud reference machine (Intel Xeon @ 2.10GHz, CPU model 207, 4 cores, Linux x64), Bun 1.4.2, run of 2026-10-10 (benchmarks `131fcc5`). Velox 0.8.0 against Elysia 1.4.30, Hono 4.13.12 and Express 5.2.1, `NODE_ENV=production`. `oha -c 100`, a 3 s warmup, best of 3 runs of 10 s; req/s, higher is better. Results within 10% of the best count as a tie: between two full runs on the reference machine the best-of-3 figure moved by up to 8.1%.
 
 | Scenario | Velox | Elysia | Hono | Express | Result |
 |---|---|---|---|---|---|
-| Simple GET, static value | 79,251 | **85,661** | 52,265 | 26,007 | tie with Elysia (-7.5% median, inside noise) |
-| Simple GET, handler without request | 47,108 | 47,606 | 41,557 | 20,691 | tie with Elysia (0.99x) |
-| GET with path parameter | 46,639 | 46,588 | 39,215 | 19,612 | tie with Elysia (1.00x) |
-| Validation POST (body + query + params + headers) | **31,301** | 23,883 | 20,689 | 10,965 | **1.31x Elysia**, ahead in 5 of 5 runs |
+| Static value, GET /hello | 160,689 | 161,902 | 90,879 | 44,883 | tie with Elysia (0.99x) |
+| Dynamic handler, GET /hello | 106,953 | 113,409 | 91,815 | 43,569 | tie with Elysia (0.94x) |
+| Validation POST /hello/:par1/:par2 | **62,726** | 48,927 | 39,119 | 21,934 | **Velox**, 1.28x Elysia |
 
-Only the validation result is a measured win over Elysia. With 5 runs and 7% to 15% run-to-run spread, a gap has to be larger than about 20% to 45% to count, so "tie" means "not detectable", not "equal". Velox uses about the same server CPU per request as Elysia on the first three scenarios (static 2.59 vs 2.43 us, handler 7.80 vs 7.78 us, params 8.08 vs 8.00 us) and less on validation (18.25 vs 26.05 us). Compared with Velox before the 2026-09 performance work (`cca8983`), no scenario regressed; the handler and params scenarios are 5% to 6% faster and validation 24% faster, all inside the noise rule.
+Only the validation scenario is a lead over Elysia; static and dynamic are ties inside the 10% threshold, so do not read them as faster or slower.
 
-> Run them yourself (needs [`oha`](https://github.com/hatoo/oha)): `bun run bench -- --pkg velox` in the repository. The public benchmarks repo ([github.com/coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks)) has its own, older runs on other hardware.
+> Numbers move with the machine; compare them only within one run. The source of truth is `https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json`. The in-repo suites (`bun run bench -- --pkg veta|velox`) are development tools for A/B runs between versions; their numbers are not published.
 
 ---
 
