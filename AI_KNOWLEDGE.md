@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@8854676 -->
+<!-- docs: sync from coderbuzz/codex@5aee801 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -10,13 +10,13 @@ application code with the Velox framework. Treat every rule here as authoritativ
 
 ## Benchmarks
 
-Numbers from the public benchmarks repo, [coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks) (`results/latest.json`): the repo's cloud reference machine (Intel Xeon @ 2.10GHz, CPU model 207, 4 cores, Linux x64), Bun 1.4.2, run of 2026-10-10 (benchmarks `131fcc5`). Velox 0.8.0 against Elysia 1.4.30, Hono 4.13.12 and Express 5.2.1, `NODE_ENV=production`. `oha -c 100`, a 3 s warmup, best of 3 runs of 10 s; req/s, higher is better. Results within 10% of the best count as a tie: between two full runs on the reference machine the best-of-3 figure moved by up to 8.1%.
+Numbers from the public benchmarks repo, [coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks) (`results/latest.json`): the repo's reference VM (Intel Xeon Platinum 8255C @ 2.50GHz, 4 cores, Linux x64), Bun 1.4.3, run of 2026-10-10 (benchmarks `6ed4ccf`). Velox 0.8.0 against Elysia 1.4.30, Hono 4.13.12 and Express 5.2.1, `NODE_ENV=production`. `oha -c 100`, a 3 s warmup, best of 3 runs of 10 s; req/s, higher is better. Results within 10% of the best count as a tie: between two full runs on the earlier cloud reference machine the best-of-3 figure moved by up to 8.1%.
 
 | Scenario | Velox | Elysia | Hono | Express | Result |
 |---|---|---|---|---|---|
-| Static value, GET /hello | 160,689 | 161,902 | 90,879 | 44,883 | tie with Elysia (0.99x) |
-| Dynamic handler, GET /hello | 106,953 | 113,409 | 91,815 | 43,569 | tie with Elysia (0.94x) |
-| Validation POST /hello/:par1/:par2 | **62,726** | 48,927 | 39,119 | 21,934 | **Velox**, 1.28x Elysia |
+| Static value, GET /hello | 70,310 | 70,629 | 42,277 | 18,164 | tie with Elysia (1.00x) |
+| Dynamic handler, GET /hello | 48,498 | 48,224 | 42,635 | 18,235 | tie with Elysia (1.01x) |
+| Validation POST /hello/:par1/:par2 | **26,204** | 18,002 | 16,861 | 9,670 | **Velox**, 1.46x Elysia |
 
 Only the validation scenario is a lead over Elysia; static and dynamic are ties inside the 10% threshold, so do not read them as faster or slower.
 
