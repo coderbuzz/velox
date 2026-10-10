@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@ef21ff0 -->
+<!-- docs: sync from coderbuzz/codex@8854676 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -22,7 +22,7 @@ Only the validation scenario is a lead over Elysia; static and dynamic are ties 
 
 > Numbers move with the machine; compare them only within one run. The source of truth is `https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json`. The in-repo suites (`bun run bench -- --pkg veta|velox`) are development tools for A/B runs between versions; their numbers are not published.
 
-For agents: read the numbers from `https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json` (suite ids `velox-static-value`, `velox-dynamic`, `velox-validation`). In HTTP suites every entry within `meta.http.tieThreshold` (0.1) of the best is a `winner`; both Velox and Elysia are winners for static and dynamic in this run. Each server must answer `200 {"message":"Hello, World"}` before load, the validation servers must reject invalid input, and any non-2xx response fails a run. Do not quote the in-repo suite (`packages/velox/bench`) or older tables as benchmark claims; it remains the tool for A/B runs between Velox versions (e.g. middleware or 404 scenarios that the public repo does not have).
+For agents: read the numbers from `https://raw.githubusercontent.com/coderbuzz/benchmarks/main/results/latest.json` (suite ids `velox-static-value`, `velox-dynamic`, `velox-validation`). In HTTP suites every entry within `meta.http.tieThreshold` (0.1) of the best is a `winner`; both Velox and Elysia are winners for static and dynamic in this run. Each server must answer `200 {"message":"Hello, World"}` before load, the validation servers must reject invalid input, and any non-2xx response fails a run. Do not quote the in-repo suite (`packages/velox/bench`) or older tables as benchmark claims; it remains the tool for A/B runs between Velox versions (e.g. middleware or 404 scenarios that the public repo does not have). Figures elsewhere in this file that say "measured" are local A/B measurements behind a design decision, taken on a developer machine; they explain a trade-off and are not benchmark claims. Quote speed only from the public results.
 
 ---
 
@@ -418,8 +418,8 @@ A route is answered without constructing `ctx` when nothing could observe it:
   `cookies` / `json` / `text` / `form` / `response` schema.
 
 The handler is called and its value converted with `toResponse` directly. The
-result is identical to the general path; only the cost differs (on Bun, about
-0.7 µs instead of 1.3 µs of JS per request for a small JSON body).
+result is identical to the general path; only the cost differs (measured on Bun:
+about 0.7 µs instead of 1.3 µs of JS per request for a small JSON body).
 
 - A throw or rejection still builds the Context and goes through the normal
   chain: route `onError`, app `onError`, then the default 500 (§6).
