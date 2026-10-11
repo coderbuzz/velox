@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@b8ef326 -->
+<!-- docs: sync from coderbuzz/codex@24a1da8 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -13,7 +13,7 @@
   <a href="https://codecov.io/gh/coderbuzz/velox"><img src="https://codecov.io/gh/coderbuzz/velox/graph/badge.svg" alt="Codecov" /></a>
 </p>
 
-On Bun, Velox is level with Elysia on simple GETs (static value, handler) and serves a validated POST **1.22x** faster than Elysia (benchmarks below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
+On Bun, Velox is level with Elysia on simple GETs (static value, handler) and serves a validated POST **1.39x** faster than Elysia (benchmarks below). Runtime-agnostic (Node.js, Deno, Bun, Cloudflare Workers) with full type inference, schema validation with any validator function (examples use `@coderbuzz/veta`), built-in WebSocket with pub/sub, and 16+ production middleware, all in one framework.
 
 ---
 
@@ -21,7 +21,7 @@ On Bun, Velox is level with Elysia on simple GETs (static value, handler) and se
 
 | Pain Point | Elysia | Hono | Express | **Velox** |
 |---|---|---|---|---|
-| Performance (Bun) | Level with Velox on simple GETs; 1.22x slower on validated POST | Slower than Velox on every benchmark scenario | Slowest, about 2.4x to 4.4x behind Velox | Level with Elysia on simple GETs; **1.22x Elysia** on validated POST |
+| Performance (Bun) | Level with Velox on simple GETs; 1.39x slower on validated POST | Slower than Velox on every benchmark scenario | Slowest, about 2.9x to 6.1x behind Velox | Level with Elysia on simple GETs; **1.39x Elysia** on validated POST |
 | Schema validation | TypeBox (heavy, complex) | Zod (no coercion) | Manual | **Any validator function**; examples use Veta (<5 KB gzip, coercion built-in) |
 | Type inference through middleware | Good | Partial | None | **Full**: `define()` scopes typed state |
 | WebSocket | Bun-only | Partial | Via socket.io | **Built-in** with pub/sub, binary protocol, client SDK |
@@ -35,13 +35,13 @@ On Bun, Velox is level with Elysia on simple GETs (static value, handler) and se
 
 ## Benchmarks
 
-Numbers from the public benchmarks repo, [coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks) (`results/latest.json`): a cloud machine (Intel Xeon @ 2.10GHz, family 6 model 207 stepping 2, 4 cores, Linux x64), Bun 1.4.3, run of 2026-10-10 (benchmarks `31fbcee`). Velox 0.8.0 against Elysia 1.4.30, Hono 4.13.12 and Express 5.2.1, `NODE_ENV=production`. `oha -c 100`, a 3 s warmup, best of 4 interleaved rounds of 10 s (every framework once per round, order rotated, a fresh server per run); req/s, higher is better. Results within 10% of the best count as a tie: between two full runs on one cloud machine the best-of-3 figure moved by up to 8.1%.
+Numbers from the public benchmarks repo, [coderbuzz/benchmarks](https://github.com/coderbuzz/benchmarks) (`results/latest.json`): a cloud machine (Intel Xeon @ 2.80GHz, family 6 model 85 stepping 7, 4 cores, Linux x64), Bun 1.4.3, run of 2026-10-11 (benchmarks `d3093a2`). Velox 0.8.0 against Elysia 1.4.30, Hono 4.13.12 and Express 5.2.1, `NODE_ENV=production`. `oha -c 100`, a 3 s warmup, best of 4 interleaved rounds of 10 s (every framework once per round, order rotated, a fresh server per run); req/s, higher is better. Results within 10% of the best count as a tie: between two full runs on one cloud machine the best-of-3 figure moved by up to 8.1%.
 
 | Scenario | Velox | Elysia | Hono | Express | Result |
 |---|---|---|---|---|---|
-| Static value, GET /hello | 144,500 | 148,511 | 68,464 | 32,631 | tie with Elysia (0.97x) |
-| Dynamic handler, GET /hello | 83,437 | 85,729 | 68,946 | 34,330 | tie with Elysia (0.97x) |
-| Validation POST /hello/:par1/:par2 | **49,135** | 40,362 | 34,337 | 17,165 | **Velox**, 1.22x Elysia |
+| Static value, GET /hello | 124,956 | 114,005 | 47,206 | 20,346 | tie with Elysia (1.096x) |
+| Dynamic handler, GET /hello | 54,460 | 56,690 | 46,957 | 19,081 | tie with Elysia (0.96x) |
+| Validation POST /hello/:par1/:par2 | **28,472** | 20,452 | 16,948 | 9,131 | **Velox**, 1.39x Elysia |
 
 Only the validation scenario is a lead over Elysia; static and dynamic are ties inside the 10% threshold, so do not read them as faster or slower.
 
