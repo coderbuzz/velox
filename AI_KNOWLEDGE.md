@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@956f0b5 -->
+<!-- docs: sync from coderbuzz/codex@b8ef326 -->
 
 # Velox Framework: AI Expert Knowledge Reference
 
@@ -59,6 +59,8 @@ const app = new AppServer({ port: 3000, hostname: "0.0.0.0" });
 // Sub-app (router only, no server lifecycle)
 const sub = new App();
 ```
+
+`hostname` is optional. Left out, the runtime picks: Bun listens on every interface, IPv4 and IPv6, so `localhost` works whether it resolves to `127.0.0.1` or `::1`; Node.js, uWS and Deno listen on `0.0.0.0`. Pass `"0.0.0.0"` for IPv4 only, or `"127.0.0.1"` to accept local connections only. `app.hostname` is `undefined` until set; `run()` resolves to the address the runtime reports (Bun: `"localhost"` for the default). Before 0.9, AppServer always passed `"0.0.0.0"`, so on Bun a client that resolved `localhost` to `::1` got `ECONNREFUSED`.
 
 ### 2.2 Route Registration Signatures
 

@@ -1,4 +1,4 @@
-<!-- docs: sync from coderbuzz/codex@956f0b5 -->
+<!-- docs: sync from coderbuzz/codex@b8ef326 -->
 
 # Velox: `@coderbuzz/velox`
 
@@ -150,6 +150,8 @@ app.use("/api/v1", api);
 
 await app.run();
 ```
+
+`hostname` is optional. Left out, the runtime picks: Bun listens on every interface, IPv4 and IPv6, so `localhost` works whether it resolves to `127.0.0.1` or `::1`; Node.js, uWS and Deno listen on `0.0.0.0`. Pass `"0.0.0.0"` for IPv4 only, or `"127.0.0.1"` to accept local connections only.
 
 ---
 
